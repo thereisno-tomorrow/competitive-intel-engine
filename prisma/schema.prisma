@@ -1,0 +1,310 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CompetitorTier {
+  TIER_1
+  TIER_2
+}
+
+enum CompetitorStatus {
+  ACTIVE
+  WATCHING
+  ARCHIVED
+}
+
+enum SourceType {
+  WEBSITE
+  CHANGELOG
+  PRESS_RSS
+  STATUS_PAGE
+  REVIEW        // Simulated in MVP
+  JOB_POSTING   // Simulated in MVP
+  SEO           // Simulated in MVP
+  LINKEDIN      // Simulated in MVP
+  REGULATORY    // Simulated in MVP
+}
+
+enum SourceCadence {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum SourceHealth {
+  HEALTHY
+  DEGRADED
+  STALE
+}
+
+enum IntelType {
+  PRODUCT_CHANGE
+  PRICING_CHANGE
+  HIRING_SIGNAL
+  PARTNERSHIP
+  REVIEW
+  PRESS
+  OUTAGE
+  MESSAGING_SHIFT
+  SEO_CHANGE
+  REGULATORY
+}
+
+enum EvidenceTier {
+  CONFIRMED
+  INFERRED
+  UNKNOWN
+}
+
+enum ClaimStatus {
+  HOLDING
+  UNDER_PRESSURE
+  CONTESTED
+}
+
+enum OutputType {
+  WEEKLY_PULSE
+  MONTHLY_PULSE
+  SIGNAL_ALERT
+}
+
+enum ValidationStatus {
+  PASSED
+  REJECTED
+  REGENERATED
+  FLAGGED       // Requires human review before publishing
+}
+
+enum ContentBucket {
+  INTELLIGENCE_DRIVEN
+  PRODUCT_DRIVEN
+  BUYER_JOURNEY
+  CATEGORY_CREATION
+}
+
+enum FunnelStage {
+  AWARENESS
+  ACQUISITION
+  ACTIVATION
+  RETENTION
+  EXPANSION
+}
+
+enum ContentType {
+  BLOG_POST
+  COMPARISON_PAGE
+}
+
+enum BuyerSegment {
+  STARTUP
+  MSME
+  MID_MARKET
+}
+
+enum BriefStatus {
+  SUGGESTED
+  APPROVED
+  PUBLISHED
+}
+
+model Competitor {
+  id                String           @id @default(cuid())
+  name              String           @unique
+  tier              CompetitorTier
+  status            CompetitorStatus @default(ACTIVE)
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  sources           DataSource[]
+  intelligenceItems IntelligenceItem[]
+  battlecard        Battlecard?
+  reframes          BattlecardReframe[]
+  threatenedClaims  PositioningClaim[] @relation("CompetitorThreats")
+  contentBriefs     ContentBrief[]
+
+  @@map("competitors")
+}
+
+model DataSource {
+  id                 String        @id @default(cuid())
+  competitorId       String        @map("competitor_id")
+  type               SourceType
+  url                String
+  cadence            SourceCadence
+  health             SourceHealth  @default(HEALTHY)
+  lastChecked        DateTime?     @map("last_checked")
+  lastChangeDetected DateTime?     @map("last_change_detected")
+  lastContentHash    String?       @map("last_content_hash")
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  competitor         Competitor    @relation(fields: [competitorId], references: [id])
+  intelligenceItems  IntelligenceItem[]
+  seenArticles       SeenArticle[]
+
+  @@map("data_sources")
+}
+
+model IntelligenceItem {
+  id               String       @id @default(cuid())
+  competitorId     String       @map("competitor_id")
+  sourceId         String?      @map("source_id")
+  detectedAt       DateTime     @default(now()) @map("detected_at")
+  eventDate        DateTime?    @map("event_date")
+  type             IntelType
+  rawContent       String       @map("raw_content")
+  summary          String
+  companyImplication String     @map("finmo_implication")
+  evidenceTier     EvidenceTier @map("evidence_tier")
+  sourceUrl        String       @map("source_url")
+  alertTriggered   Boolean      @default(false) @map("alert_triggered")
+  simulated        Boolean      @default(false)
+  eventFingerprint String?      @map("event_fingerprint")
+  sourceTitle      String?      @map("source_title")
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  competitor       Competitor   @relation(fields: [competitorId], references: [id])
+  source           DataSource?  @relation(fields: [sourceId], references: [id])
+  claimsAffected   PositioningClaim[] @relation("ClaimEvidence")
+  reframes         BattlecardReframe[] @relation("ReframeEvidence")
+  outputs          GeneratedOutput[] @relation("OutputIntelligence")
+
+  @@index([competitorId, detectedAt])
+  @@index([competitorId, eventFingerprint])
+  @@index([eventDate])
+  @@index([type])
+  @@index([evidenceTier])
+  @@index([simulated])
+  @@index([competitorId, sourceUrl])
+  @@map("intelligence_items")
+}
+
+model PositioningClaim {
+  id              String      @id @default(cuid())
+  claimText       String      @map("claim_text")
+  currentStatus   ClaimStatus @default(HOLDING) @map("current_status")
+  lastAssessed    DateTime?   @map("last_assessed")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  evidenceItems   IntelligenceItem[] @relation("ClaimEvidence")
+  threatenedBy    Competitor[] @relation("CompetitorThreats")
+
+  @@map("positioning_claims")
+}
+
+model BattlecardReframe {
+  id               String       @id @default(cuid())
+  competitorId     String       @map("competitor_id")
+  weakness         String
+  reframe          String
+  antiReframe      String       @map("anti_reframe")
+  evidenceTier     EvidenceTier @map("evidence_tier")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  competitor       Competitor   @relation(fields: [competitorId], references: [id])
+  sourceItems      IntelligenceItem[] @relation("ReframeEvidence")
+
+  @@map("battlecard_reframes")
+}
+
+model Battlecard {
+  id               String       @id @default(cuid())
+  competitorId     String       @unique @map("competitor_id")
+  whenTheyComeUp   String       @map("when_they_come_up")
+  theirPitch       Json         @map("their_pitch")       // string[]
+  weaknesses       Json                                    // Array<{ text, evidenceTier, sourceUrl }>
+  openQuestions    Json          @map("open_questions")    // string[]
+  overview         String?      @map("overview")           // Competitor overview paragraph
+  quickDismiss     Json?        @map("quick_dismiss")      // { keyDismissals: string[], talkTrack: string }
+  whyWeWin         Json?        @map("why_we_win")         // Array<{ point, context, action, evidenceTier }>
+  whyWeLose        Json?        @map("why_we_lose")        // Array<{ point, context, action, evidenceTier }>
+  trapQuestions    Json?         @map("trap_questions")     // Array<{ question, whyItWorks, followUp }>
+  proofPoints      Json?        @map("proof_points")       // Array<{ type, text, source?, url? }>
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  competitor       Competitor   @relation(fields: [competitorId], references: [id])
+
+  @@map("battlecards")
+}
+
+model GeneratedOutput {
+  id                    String           @id @default(cuid())
+  type                  OutputType
+  publishedAt           DateTime         @default(now()) @map("published_at")
+  eventDate             DateTime?        @map("event_date")
+  headline              String
+  content               Json
+  wordCount             Int              @map("word_count")
+  validationStatus      ValidationStatus @default(PASSED) @map("validation_status")
+  generationMetadata    Json?            @map("generation_metadata")
+  createdAt             DateTime         @default(now()) @map("created_at")
+
+  intelligenceItems     IntelligenceItem[] @relation("OutputIntelligence")
+
+  @@index([type, publishedAt])
+  @@index([type, eventDate])
+  @@map("generated_outputs")
+}
+
+model ContentBrief {
+  id                String        @id @default(cuid())
+  title             String
+  angle             String
+  bucket            ContentBucket
+  funnelStage       FunnelStage   @map("funnel_stage")
+  buyerProblem      String        @map("buyer_problem")
+  treatments        Json                                    // Array<{ segment, headline, angle, keyMessages[], buyerPersona }>
+  priorityScore     Int           @map("priority_score")
+  priorityRationale String?       @map("priority_rationale")
+  notes             String?                                 // LLM strategic notes (AEO, dark social, etc.)
+  status            BriefStatus   @default(SUGGESTED)
+  sourceId          String?       @map("source_id")         // FK to IntelligenceItem or GeneratedOutput
+  competitorId      String?       @map("competitor_id")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  competitor        Competitor?   @relation(fields: [competitorId], references: [id])
+  drafts            ContentDraft[]
+
+  @@index([status])
+  @@index([bucket])
+  @@map("content_briefs")
+}
+
+model SeenArticle {
+  id         String     @id @default(cuid())
+  sourceId   String     @map("source_id")
+  articleUrl String     @map("article_url")
+  firstSeen  DateTime   @default(now()) @map("first_seen")
+
+  source     DataSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, articleUrl])
+  @@map("seen_articles")
+}
+
+model ContentDraft {
+  id                 String       @id @default(cuid())
+  briefId            String       @map("brief_id")
+  contentType        ContentType  @map("content_type")
+  segment            BuyerSegment
+  title              String
+  content            String                                 // Full markdown
+  wordCount          Int          @map("word_count")
+  version            Int          @default(1)
+  generationMetadata Json?        @map("generation_metadata")
+  status             BriefStatus  @default(SUGGESTED)
+  createdAt          DateTime     @default(now()) @map("created_at")
+
+  brief              ContentBrief @relation(fields: [briefId], references: [id])
+
+  @@index([briefId])
+  @@map("content_drafts")
+}
