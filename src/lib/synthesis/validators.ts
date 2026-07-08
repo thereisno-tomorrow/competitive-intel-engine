@@ -80,6 +80,84 @@ export function validateSignalAlert(content: SignalAlertContent, wordLimit: numb
   return { valid: errors.length === 0, errors };
 }
 
+// ---------------------------------------------------------------------------
+// Tier monotonicity (U12, R6): an output can never claim a higher evidence tier
+// than the best source it cites. Downgrade-only.
+// ---------------------------------------------------------------------------
+
+const TIER_RANK: Record<string, number> = {
+  CONFIRMED: 3,
+  INFERRED: 2,
+  UNKNOWN: 1,
+};
+
+function rankToTier(rank: number): string {
+  return (
+    Object.entries(TIER_RANK).find(([, r]) => r === rank)?.[0] ?? "UNKNOWN"
+  );
+}
+
+/**
+ * An asserted tier may never exceed the strongest tier among the cited sources.
+ * When there are no tiered sources at all, monotonicity is N/A here (the existing
+ * source-verification rule handles "no citations") — so this returns valid and
+ * does not double-fail. A violation is a plain validation failure that feeds the
+ * U9 retry-with-feedback loop.
+ */
+export function validateTierMonotonicity(
+  assertedTiers: Array<string | undefined | null>,
+  sourceTiers: Array<string | undefined | null>,
+): ValidationResult {
+  const errors: string[] = [];
+  const sourceRanks = sourceTiers
+    .map((t) => (t ? TIER_RANK[t] : undefined))
+    .filter((r): r is number => typeof r === "number");
+
+  if (sourceRanks.length === 0) {
+    return { valid: true, errors: [] };
+  }
+
+  const maxSourceRank = Math.max(...sourceRanks);
+  for (const t of assertedTiers) {
+    const rank = t ? TIER_RANK[t] : undefined;
+    if (typeof rank !== "number") continue;
+    if (rank > maxSourceRank) {
+      errors.push(
+        `Tier monotonicity: output claims ${t} but the best cited source is only ${rankToTier(maxSourceRank)}`,
+      );
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Loss-condition rule (U16, R7): a battlecard must carry at least one honest
+ * weakness / place where Finmo loses. An empty (all-"we win") section fails and
+ * feeds the retry loop. Applies to the weaknesses and whyWeLose sections.
+ */
+export function validateLossCondition(content: unknown): ValidationResult {
+  const arr = Array.isArray(content) ? content : [];
+  const substantive = arr.filter((entry) => {
+    if (typeof entry === "string") return entry.trim().length > 0;
+    if (entry && typeof entry === "object") {
+      return Object.values(entry as Record<string, unknown>).some(
+        (v) => typeof v === "string" && v.trim().length > 0,
+      );
+    }
+    return false;
+  });
+  if (substantive.length === 0) {
+    return {
+      valid: false,
+      errors: [
+        "Loss-condition rule: the card must state at least one honest weakness / place where we lose — an all-'we win' card is rejected",
+      ],
+    };
+  }
+  return { valid: true, errors: [] };
+}
+
 export function validateBattlecardReframe(evidenceTier: EvidenceTier): ValidationResult {
   if (evidenceTier !== "CONFIRMED") {
     return {

@@ -18,6 +18,12 @@ import { resolveGoogleNewsUrl } from "./google-news-url";
 import { generateEventFingerprint, fuzzyFingerprintMatch } from "./event-fingerprint";
 import { fetchArticleContent } from "./article-fetcher";
 import { deduplicateByTitle } from "./title-similarity";
+import {
+  runConnectors,
+  type ConnectorRegistry,
+  type Transport,
+} from "./connector";
+import { httpTransport } from "./transport";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -85,12 +91,21 @@ type SourceRow = Awaited<ReturnType<typeof prisma.dataSource.findMany>>[number] 
 export class IngestionRunner {
   private adapters: Map<SourceType, IngestionAdapter>;
   private llm: LLMProvider;
+  private connectors: ConnectorRegistry;
+  private transport: Transport;
   /** Hashes computed during collect phase — avoids double-fetching in updateEventSourceMeta */
   private eventSourceHashes = new Map<string, string>();
 
-  constructor(adapters: Map<SourceType, IngestionAdapter>, llm: LLMProvider) {
+  constructor(
+    adapters: Map<SourceType, IngestionAdapter>,
+    llm: LLMProvider,
+    connectors: ConnectorRegistry = {},
+    transport: Transport = httpTransport,
+  ) {
     this.adapters = adapters;
     this.llm = llm;
+    this.connectors = connectors;
+    this.transport = transport;
   }
 
   async run(): Promise<IngestionRunStats> {
@@ -145,6 +160,12 @@ export class IngestionRunner {
     await this.storeItems(classified, claims, stats);
     this.log("STORE", `${classified.length} → ${stats.itemsCreated} created (${stats.fingerprintDedupSkipped} fingerprint conflicts)`);
 
+    // Phase 7: REMEMBER-COMMIT — record ALL collected EVENT URLs as seen only
+    // now that STORE succeeded. A crash before this point leaves URLs unseen so a
+    // re-run reprocesses them (no silent data loss). (R13)
+    await this.recordSeen(collected);
+    this.log("SEEN", `recorded ${collected.length} URLs as seen (post-store)`);
+
     // ─── STATE SOURCES (existing per-source logic, unchanged) ─────
 
     await this.processStateSources(stateSources, claims, stats);
@@ -152,6 +173,10 @@ export class IngestionRunner {
     // ─── UPDATE EVENT SOURCE METADATA ─────────────────────────────
 
     await this.updateEventSourceMeta(eventSources);
+
+    // ─── CONNECTOR SOURCES (new-source contract, U19) ─────────────
+
+    await this.processConnectorSources(sources, claims, stats);
 
     stats.durationMs = Date.now() - start;
     this.log(
@@ -249,20 +274,10 @@ export class IngestionRunner {
       }
     }
 
-    // 3. Record ALL URLs as seen (including ones we'll cap below)
-    const records = items.map((item) => ({
-      sourceId: item.sourceId,
-      articleUrl: item.url,
-    }));
-
-    // Batch insert in chunks to avoid query size limits
-    const CHUNK = 500;
-    for (let i = 0; i < records.length; i += CHUNK) {
-      await prisma.seenArticle.createMany({
-        data: records.slice(i, i + CHUNK),
-        skipDuplicates: true,
-      });
-    }
+    // NOTE: recording URLs as "seen" is deliberately deferred until AFTER a
+    // successful STORE (see recordSeen, called from run()). Recording here would
+    // mean a crash between REMEMBER and STORE silently loses new articles: they'd
+    // be marked seen but never stored, and never reprocessed. (R13)
 
     // 3b. Pre-filter: drop articles that do not mention the competitor name.
     // Trade press firehose feeds contain hundreds of irrelevant articles.
@@ -292,6 +307,24 @@ export class IngestionRunner {
     }
 
     return mentionFiltered;
+  }
+
+  // ─── Phase 7: REMEMBER-COMMIT (seen-after-store) ─────────────────
+
+  /** Record collected EVENT URLs as seen. Called only after a successful STORE. */
+  private async recordSeen(items: PipelineItem[]): Promise<void> {
+    if (items.length === 0) return;
+    const records = items.map((item) => ({
+      sourceId: item.sourceId,
+      articleUrl: item.url,
+    }));
+    const CHUNK = 500;
+    for (let i = 0; i < records.length; i += CHUNK) {
+      await prisma.seenArticle.createMany({
+        data: records.slice(i, i + CHUNK),
+        skipDuplicates: true,
+      });
+    }
   }
 
   // ─── Phase 6: ENRICH ─────────────────────────────────────────────
@@ -373,7 +406,9 @@ export class IngestionRunner {
           claims,
           existingEventKeys: existingEventKeys.get(competitorId),
         });
-        batchResult = await this.llm.classifyStructured<BatchClassificationResult>(prompt);
+        // Classify uses the stronger model (U11) — protect the unvalidated
+        // "is this noteworthy?" decision from cheap-model SKIP errors.
+        batchResult = await this.llm.classifyStructured<BatchClassificationResult>(prompt, { step: "classify" });
         stats.llmCallsMade++;
         stats.estimatedCostUsd += LLM_COST_PER_CALL;
       } catch {
@@ -614,7 +649,7 @@ export class IngestionRunner {
           existingEventKeys: stateExistingKeys.get(source.competitorId),
         });
         classification =
-          await this.llm.classifyStructured<ClassificationResult>(prompt);
+          await this.llm.classifyStructured<ClassificationResult>(prompt, { step: "classify" });
         stats.llmCallsMade++;
         stats.estimatedCostUsd += LLM_COST_PER_CALL;
       } catch {
@@ -734,6 +769,150 @@ export class IngestionRunner {
           ...(storedHash ? { lastContentHash: storedHash, health: "HEALTHY" as const } : {}),
         },
       });
+    }
+  }
+
+  // ─── CONNECTOR SOURCES (U19) ─────────────────────────────────────
+
+  /**
+   * Process sources whose type has a registered connector (SEC/regulatory, jobs,
+   * SEO, LinkedIn). Runs the connector fan-out (isolated + budgeted), then
+   * classifies + stores each emitted content as a discrete intel item with
+   * seen-URL + fingerprint dedup. Connectors never assign a tier — classification
+   * does (KTD7). Additive: the EVENT/STATE adapter paths are untouched.
+   */
+  private async processConnectorSources(
+    sources: SourceRow[],
+    claims: Awaited<ReturnType<typeof prisma.positioningClaim.findMany>>,
+    stats: IngestionRunStats,
+  ): Promise<void> {
+    const connectorSources = sources
+      .filter((s) => this.connectors[s.type])
+      .map((s) => ({
+        id: s.id,
+        type: s.type,
+        url: s.url,
+        competitorId: s.competitorId,
+        competitorName: s.competitor.name,
+      }));
+    if (connectorSources.length === 0) return;
+
+    stats.sourcesChecked += connectorSources.length;
+
+    const { content, errors } = await runConnectors(
+      this.connectors,
+      connectorSources,
+      this.transport,
+      { budget: INGESTION.MAX_NEW_ITEMS_PER_RUN },
+    );
+    for (const e of errors) stats.errors.push(e);
+    stats.itemsFetched += content.length;
+
+    if (content.length === 0) return;
+
+    const claimIds = new Set(claims.map((c) => c.id));
+    const competitorIds = [...new Set(content.map((c) => c.competitorId))];
+    const existingKeys = await this.getExistingEventKeys(competitorIds);
+
+    for (const item of content) {
+      // Seen dedup (URL already ingested from this source) — feed memory.
+      const seen = await prisma.seenArticle.findUnique({
+        where: { sourceId_articleUrl: { sourceId: item.sourceId, articleUrl: item.url } },
+        select: { id: true },
+      });
+      if (seen) {
+        stats.seenSkipped++;
+        continue;
+      }
+
+      let classification: ClassificationResult | null = null;
+      try {
+        const prompt = buildClassifyIntelPrompt({
+          competitorName:
+            connectorSources.find((s) => s.id === item.sourceId)?.competitorName ?? "",
+          sourceType: item.sourceType,
+          sourceUrl: item.url,
+          rawContent: item.text,
+          changeType: "connector_item",
+          claims,
+          sourceCategory: "EVENT",
+          isFirstRun: false,
+          existingEventKeys: existingKeys.get(item.competitorId),
+        });
+        classification = await this.llm.classifyStructured<ClassificationResult>(prompt, {
+          step: "classify",
+        });
+        stats.llmCallsMade++;
+        stats.estimatedCostUsd += LLM_COST_PER_CALL;
+      } catch {
+        stats.llmCallsMade++;
+        stats.estimatedCostUsd += LLM_COST_PER_CALL;
+        stats.errors.push({ sourceId: item.sourceId, error: "connector classify failed" });
+      }
+
+      if (classification?.type === "SKIP") {
+        stats.llmSkipped++;
+        // Record as seen so we don't re-classify the same surface every run.
+        await prisma.seenArticle.create({
+          data: { sourceId: item.sourceId, articleUrl: item.url },
+        }).catch(() => {});
+        continue;
+      }
+
+      const intelType =
+        classification?.type && VALID_INTEL_TYPES.includes(classification.type as IntelType)
+          ? (classification.type as IntelType)
+          : "PRESS";
+      const evidenceTier =
+        classification?.evidenceTier &&
+        VALID_EVIDENCE_TIERS.includes(classification.evidenceTier as EvidenceTier)
+          ? (classification.evidenceTier as EvidenceTier)
+          : "UNKNOWN";
+      const validClaimIds = (classification?.affectedClaimIds ?? []).filter((id) =>
+        claimIds.has(id),
+      );
+      const summary = classification?.summary ?? item.title;
+      const fingerprint = generateEventFingerprint(classification?.eventKey, summary);
+
+      const exists = await prisma.intelligenceItem.findFirst({
+        where: { eventFingerprint: fingerprint, competitorId: item.competitorId },
+        select: { id: true },
+      });
+      if (exists) {
+        stats.fingerprintDedupSkipped++;
+        await prisma.seenArticle.create({
+          data: { sourceId: item.sourceId, articleUrl: item.url },
+        }).catch(() => {});
+        continue;
+      }
+
+      await prisma.intelligenceItem.create({
+        data: {
+          competitorId: item.competitorId,
+          sourceId: item.sourceId,
+          type: intelType,
+          rawContent: item.text.slice(0, 10000),
+          summary,
+          companyImplication: classification?.companyImplication ?? "",
+          evidenceTier,
+          sourceUrl: classification?.sourceUrl || item.url,
+          detectedAt: new Date(),
+          eventDate: item.publishedAt ? new Date(item.publishedAt) : new Date(),
+          simulated: false,
+          eventFingerprint: fingerprint,
+          sourceTitle: item.title,
+          claimsAffected:
+            validClaimIds.length > 0
+              ? { connect: validClaimIds.map((id) => ({ id })) }
+              : undefined,
+        },
+      });
+      stats.itemsCreated++;
+
+      // Record seen only after a successful store (R13, same discipline as EVENT).
+      await prisma.seenArticle.create({
+        data: { sourceId: item.sourceId, articleUrl: item.url },
+      }).catch(() => {});
     }
   }
 

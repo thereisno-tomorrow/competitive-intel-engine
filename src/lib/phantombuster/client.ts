@@ -55,8 +55,25 @@ export class PhantomBusterClient {
   }
 
   /**
-   * Download and parse JSON results from the S3 URL returned by fetchLatestOutput.
-   * Handles both standard JSON arrays and newline-delimited JSON (NDJSON).
+   * Corrected v2 retrieval flow (U23): fetch the latest output, then resolve its
+   * `resultObject`. In the v2 API `resultObject` is USUALLY the results JSON
+   * inline (a string), not an S3 URL — the ported client always treated it as a
+   * URL, which broke retrieval. This handles both: inline JSON is parsed directly;
+   * an http(s) value is fetched then parsed.
+   */
+  async fetchResults<T = Record<string, unknown>>(agentId: string): Promise<T[]> {
+    const output = await this.fetchLatestOutput(agentId);
+    const resultObject = output.resultObject?.trim();
+    if (!resultObject) return [];
+    if (/^https?:\/\//i.test(resultObject)) {
+      return this.fetchResultJson<T>(resultObject);
+    }
+    return parseResultText<T>(resultObject);
+  }
+
+  /**
+   * Download and parse JSON results from an S3 URL. Handles standard JSON arrays
+   * and newline-delimited JSON (NDJSON).
    */
   async fetchResultJson<T = Record<string, unknown>>(resultUrl: string): Promise<T[]> {
     const response = await fetch(resultUrl, {
@@ -70,19 +87,20 @@ export class PhantomBusterClient {
       throw new Error(`PhantomBuster result fetch error: ${response.status}`);
     }
 
-    const text = await response.text();
+    return parseResultText<T>(await response.text());
+  }
+}
 
-    // Try standard JSON array first
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      if (Array.isArray(parsed)) return parsed as T[];
-      return [parsed] as T[];
-    } catch {
-      // Fall back to NDJSON (newline-delimited JSON)
-      return text
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((line) => JSON.parse(line) as T);
-    }
+/** Parse a PhantomBuster result payload: JSON array/object or NDJSON. */
+export function parseResultText<T = Record<string, unknown>>(text: string): T[] {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (Array.isArray(parsed)) return parsed as T[];
+    return [parsed] as T[];
+  } catch {
+    return text
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as T);
   }
 }

@@ -1,4 +1,38 @@
 import type { SourceType } from "@/generated/prisma/client";
+import type { LLMStep } from "@/lib/llm/provider";
+
+// ---------------------------------------------------------------------------
+// LLM model selection (per-step)
+// ---------------------------------------------------------------------------
+
+/**
+ * Env var name that overrides the model for each pipeline step.
+ * A model id containing "/" routes to OpenRouter; a bare id (e.g. `claude-*`)
+ * routes to Anthropic directly.
+ */
+export const LLM_MODEL_ENV: Record<LLMStep, string> = {
+  draft: "LLM_MODEL_DRAFT",
+  judge: "LLM_MODEL_JUDGE",
+  classify: "LLM_MODEL_CLASSIFY",
+} as const;
+
+/**
+ * Fallback model per step when the env var is unset. DeepSeek drafts cheap;
+ * judge/classify are meant to be a stronger model (finalized by the U14 benchmark).
+ */
+export const LLM_MODEL_DEFAULTS: Record<LLMStep, string> = {
+  draft: "deepseek/deepseek-chat",
+  judge: "deepseek/deepseek-chat",
+  classify: "deepseek/deepseek-chat",
+} as const;
+
+/** Max output tokens per step (fast mode halves the draft budget). */
+export const LLM_MAX_TOKENS = {
+  draft: 8192,
+  draftFast: 4096,
+  judge: 4096,
+  classify: 4096,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Ingestion guardrails
@@ -108,6 +142,19 @@ export const OUTPUT_LIMITS = {
   SIGNAL_ALERT_MAX_WORDS: 700,
   MAX_REGENERATION_ATTEMPTS: 3,
   MAX_ALERTS_PER_WEEK: 3,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Worker heartbeat / liveness (U6)
+// ---------------------------------------------------------------------------
+
+export const HEARTBEAT = {
+  /** Worker writes a heartbeat row this often. */
+  INTERVAL_MS: 5 * 60_000,
+  /** Age > 1× interval → STALE. */
+  STALE_MULTIPLIER: 1,
+  /** Age > 3× interval → DEAD. */
+  DEAD_MULTIPLIER: 3,
 } as const;
 
 export const SCHEDULE = {

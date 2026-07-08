@@ -6,6 +6,30 @@ import { COMPANY_NAME } from "@/lib/config/company";
 const MAX_CONTENT_LENGTH = 8000;
 const BATCH_MAX_CONTENT_LENGTH = 3000;
 
+/**
+ * Sharpened noteworthy/SKIP bar (U11). The classify step runs on the stronger
+ * model; this bar tightens both directions — it must not drop real signal, and it
+ * must not admit noise. Concrete, example-driven so the decision is reproducible.
+ */
+const NOTEWORTHY_BAR = `NOTEWORTHY BAR — what counts as intelligence (be precise in BOTH directions):
+
+INCLUDE (a discrete, competitively meaningful event):
+- Product/feature launches or material changes; roadmap or architecture shifts.
+- Pricing or packaging changes (new tiers, price moves, model changes).
+- Partnerships, integrations, funding rounds, M&A, licences/regulatory milestones.
+- Executive hires/departures that signal strategy (C-suite, GM of a business line).
+- Outages/incidents, security events, or messaging/positioning shifts that touch ${COMPANY_NAME}'s frame or a positioning claim.
+
+SKIP (omit — these are noise, not intelligence):
+- Marketing boilerplate, blog thought-leadership, or webinars with no underlying event.
+- Round-ups / "top N vendors" listicles that mention the competitor only in passing.
+- Awards, badges, or vanity PR with no strategic consequence.
+- Stock-price movements, analyst ratings, or generic industry-trend pieces.
+- Re-coverage of an event already tracked (dedupe to the existing eventKey instead).
+- Content where the competitor is merely name-dropped, not the subject.
+
+When genuinely unsure whether a discrete event is competitively meaningful, INCLUDE it at a lower evidence tier rather than dropping signal — but never pad with noise to look busy.`;
+
 interface ClassifyIntelPromptContext {
   competitorName: string;
   sourceType: string;
@@ -110,6 +134,8 @@ ${COMPANY_NAME.toUpperCase()}'S POSITIONING CLAIMS:
 ${claimsList}
 
 ${CLASSIFICATION_RUBRIC}
+
+${NOTEWORTHY_BAR}
 ${existingKeysBlock}
 EVENTKEY FORMAT:
 - Lowercase, hyphenated, no special chars. Aim for 3-6 segments.
@@ -206,6 +232,8 @@ ${COMPANY_NAME.toUpperCase()}'S POSITIONING CLAIMS:
 ${claimsList}
 
 ${CLASSIFICATION_RUBRIC}
+
+${NOTEWORTHY_BAR}
 
 TASK: Classify this intelligence. Respond with ONLY valid JSON matching this schema:
 {

@@ -69,8 +69,8 @@ vi.mock("@/lib/generators/monthly-pulse", () => ({
   generateMonthlyPulse: vi.fn(),
 }));
 
-vi.mock("@/lib/llm/claude", () => ({
-  ClaudeProvider: vi.fn(),
+vi.mock("@/lib/llm/factory", () => ({
+  createLLMProvider: vi.fn(() => ({})),
 }));
 
 vi.mock("@/lib/config/thresholds", () => ({

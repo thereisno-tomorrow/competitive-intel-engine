@@ -21,8 +21,8 @@ async function ingest(run: number) {
     console.log(`  Fetched: ${data.itemsFetched ?? "?"} | Seen: -${data.seenSkipped ?? 0} | Title dedup: -${data.titleDedupBatchSkipped ?? 0} | Safety cap: -${data.safetyCapped ?? 0}`);
     console.log(`  LLM calls: ${data.llmCallsMade ?? 0} | Created: ${data.itemsCreated ?? 0} | Cost: $${(data.estimatedCostUsd ?? 0).toFixed(2)} (${elapsed}s)`);
     return data;
-  } catch (e: any) {
-    console.log(`  Error: ${e.message}`);
+  } catch (e) {
+    console.log(`  Error: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }

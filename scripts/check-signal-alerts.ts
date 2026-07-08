@@ -7,7 +7,7 @@ async function checkSignalAlerts() {
   console.log("\n=== SIGNAL ALERTS THIS WEEK ===");
   console.log(`Total: ${data.signalAlertsThisWeek.length}\n`);
 
-  data.signalAlertsThisWeek.forEach((alert: any, i: number) => {
+  data.signalAlertsThisWeek.forEach((alert: { headline?: string; publishedAt?: string }, i: number) => {
     console.log(`${i + 1}. ${alert.headline}`);
     console.log(`   Published: ${alert.publishedAt}`);
     console.log("");

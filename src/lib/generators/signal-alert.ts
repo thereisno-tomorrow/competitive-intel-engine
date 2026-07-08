@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildSignalAlertPrompt } from "@/lib/llm/prompts/signal-alert";
-import { validateSignalAlert } from "@/lib/synthesis/validators";
+import { loadRubric } from "@/lib/llm/rubric";
+import { validateSignalAlert, validateTierMonotonicity } from "@/lib/synthesis/validators";
+import { runTrustPipeline } from "@/lib/synthesis/trust-pipeline";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { SignalAlertContent } from "@/types";
 
@@ -54,34 +56,42 @@ export async function generateSignalAlert(
   // Fetch positioning claims for context
   const claims = await prisma.positioningClaim.findMany();
 
-  const prompt = buildSignalAlertPrompt({
-    item,
-    claims,
-    alertReasons,
+  const rubric = loadRubric();
+
+  const trust = await runTrustPipeline<SignalAlertContent>({
+    llm,
+    maxAttempts: OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS,
+    outputType: "Signal Alert",
+    rubricText: rubric.text,
+    buildPrompt: (previousErrors) =>
+      buildSignalAlertPrompt({
+        item,
+        claims,
+        alertReasons,
+        rubricText: rubric.text,
+        previousErrors,
+      }),
+    generate: (prompt) => llm.generateStructured<SignalAlertContent>(prompt, {}),
+    validate: (c) => {
+      const base = validateSignalAlert(c, OUTPUT_LIMITS.SIGNAL_ALERT_MAX_WORDS);
+      // Tier monotonicity (U12): the alert can't out-claim the item it cites.
+      const mono = validateTierMonotonicity(
+        [c.sections?.evidenceTier],
+        [item.evidenceTier],
+      );
+      return {
+        valid: base.valid && mono.valid,
+        errors: [...base.errors, ...mono.errors],
+      };
+    },
   });
 
-  let content: SignalAlertContent | null = null;
-  let validationStatus: GenerationResult["validationStatus"] = "REJECTED";
-  let attempts = 0;
-  let lastErrors: string[] = [];
-
-  while (attempts < OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS) {
-    attempts++;
-    content = await llm.generateStructured<SignalAlertContent>(prompt, {});
-
-    const validation = validateSignalAlert(
-      content,
-      OUTPUT_LIMITS.SIGNAL_ALERT_MAX_WORDS,
-    );
-    if (validation.valid) {
-      validationStatus = attempts > 1 ? "REGENERATED" : "PASSED";
-      break;
-    }
-    lastErrors = validation.errors;
-  }
+  const content = trust.content;
+  const validationStatus = trust.status;
+  const attempts = trust.attempts;
 
   if (validationStatus === "REJECTED") {
-    console.error(`Signal alert rejected after ${attempts} attempts:`, lastErrors);
+    console.error(`Signal alert rejected after ${attempts} attempts:`, trust.errors);
   }
 
   if (!content) throw new Error("Failed to generate signal alert content");
@@ -101,6 +111,8 @@ export async function generateSignalAlert(
       content: JSON.parse(contentJson),
       wordCount,
       validationStatus,
+      rubricVersion: rubric.version,
+      judgeVerdict: trust.judgeVerdict ? JSON.parse(JSON.stringify(trust.judgeVerdict)) : undefined,
       generationMetadata: {
         attempts,
         generatedAt: now.toISOString(),

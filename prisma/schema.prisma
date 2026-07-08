@@ -100,6 +100,13 @@ enum ContentType {
   COMPARISON_PAGE
 }
 
+enum JobRunStatus {
+  PENDING
+  RUNNING
+  DONE
+  REJECTED
+}
+
 enum BuyerSegment {
   STARTUP
   MSME
@@ -126,6 +133,7 @@ model Competitor {
   reframes          BattlecardReframe[]
   threatenedClaims  PositioningClaim[] @relation("CompetitorThreats")
   contentBriefs     ContentBrief[]
+  battlecardSections BattlecardSection[]
 
   @@map("competitors")
 }
@@ -158,7 +166,7 @@ model IntelligenceItem {
   type             IntelType
   rawContent       String       @map("raw_content")
   summary          String
-  companyImplication String     @map("finmo_implication")
+  companyImplication String     @map("company_implication")
   evidenceTier     EvidenceTier @map("evidence_tier")
   sourceUrl        String       @map("source_url")
   alertTriggered   Boolean      @default(false) @map("alert_triggered")
@@ -234,6 +242,46 @@ model Battlecard {
   @@map("battlecards")
 }
 
+/// A living battlecard section (U15). One row per (competitor, sectionKey); the
+/// section's content lives in append-only revisions. "Current" = the latest
+/// PASSED/REGENERATED revision. Living sections start coarse: weaknesses,
+/// reframes, whyWeLose, openQuestions (KTD6/U17).
+model BattlecardSection {
+  id           String   @id @default(cuid())
+  competitorId String   @map("competitor_id")
+  sectionKey   String   @map("section_key")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  competitor   Competitor                  @relation(fields: [competitorId], references: [id])
+  revisions    BattlecardSectionRevision[]
+
+  @@unique([competitorId, sectionKey])
+  @@map("battlecard_sections")
+}
+
+/// Append-only revision of a battlecard section (U15). Revision 1 is the curated
+/// baseline (migrated from the hand-written cards); auto-revisions link to their
+/// parent and carry a diff + "what changed" note + the rubric version they used.
+model BattlecardSectionRevision {
+  id               String           @id @default(cuid())
+  sectionId        String           @map("section_id")
+  parentRevisionId String?          @map("parent_revision_id")
+  content          Json
+  diff             Json?
+  changeSummary    String?          @map("change_summary")
+  rubricVersion    String?          @map("rubric_version")
+  validationStatus ValidationStatus @default(PASSED) @map("validation_status")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  section          BattlecardSection           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  parentRevision   BattlecardSectionRevision?  @relation("RevisionParent", fields: [parentRevisionId], references: [id])
+  childRevisions   BattlecardSectionRevision[] @relation("RevisionParent")
+
+  @@index([sectionId, createdAt])
+  @@map("battlecard_section_revisions")
+}
+
 model GeneratedOutput {
   id                    String           @id @default(cuid())
   type                  OutputType
@@ -244,6 +292,8 @@ model GeneratedOutput {
   wordCount             Int              @map("word_count")
   validationStatus      ValidationStatus @default(PASSED) @map("validation_status")
   generationMetadata    Json?            @map("generation_metadata")
+  rubricVersion         String?          @map("rubric_version")
+  judgeVerdict          Json?            @map("judge_verdict")
   createdAt             DateTime         @default(now()) @map("created_at")
 
   intelligenceItems     IntelligenceItem[] @relation("OutputIntelligence")
@@ -288,6 +338,35 @@ model SeenArticle {
 
   @@unique([sourceId, articleUrl])
   @@map("seen_articles")
+}
+
+/// Worker liveness heartbeat (U6). The worker appends a row on an interval; the
+/// dashboard classifies the latest row's age into LIVE/STALE/DEAD so a dead
+/// worker looks different from a quiet news week.
+model WorkerHeartbeat {
+  id        String   @id @default(cuid())
+  beatAt    DateTime @default(now()) @map("beat_at")
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([beatAt])
+  @@map("worker_heartbeats")
+}
+
+/// Crash-safe attempt tracking for worker jobs (U3). One row per durable job
+/// identity (queue + singleton key). Survives process crashes so a resumed job
+/// continues at attempt N+1 rather than restarting at 1.
+model JobRun {
+  id        String       @id @default(cuid())
+  jobKey    String       @unique @map("job_key")
+  queue     String
+  attempt   Int          @default(0)
+  status    JobRunStatus @default(PENDING)
+  lastError String?      @map("last_error")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@map("job_runs")
 }
 
 model ContentDraft {

@@ -4,6 +4,12 @@ export interface RawContent {
   content: string;
   url: string;
   fetchedAt: Date;
+  /**
+   * Adapter-specific parsed payload passed from fetch() to detectChanges().
+   * Carrying it here (instead of on adapter instance state) keeps adapters
+   * stateless and safe to share across concurrent sources.
+   */
+  payload?: unknown;
 }
 
 export interface DetectedChange {

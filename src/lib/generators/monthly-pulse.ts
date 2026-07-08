@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildMonthlyPulsePrompt } from "@/lib/llm/prompts/monthly-pulse";
+import { loadRubric } from "@/lib/llm/rubric";
 import { validateMonthlyPulse } from "@/lib/synthesis/validators";
+import { runTrustPipeline } from "@/lib/synthesis/trust-pipeline";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { MonthlyPulseContent } from "@/types";
 
@@ -32,35 +34,34 @@ export async function generateMonthlyPulse(
     prisma.positioningClaim.findMany(),
   ]);
 
-  const prompt = buildMonthlyPulsePrompt({
-    claims,
-    items,
-    monthStart: monthStart.toISOString().split("T")[0] ?? "",
-    monthEnd: now.toISOString().split("T")[0] ?? "",
+  const rubric = loadRubric();
+  const monthStartStr = monthStart.toISOString().split("T")[0] ?? "";
+  const monthEndStr = now.toISOString().split("T")[0] ?? "";
+
+  const trust = await runTrustPipeline<MonthlyPulseContent>({
+    llm,
+    maxAttempts: OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS,
+    outputType: "Monthly Pulse",
+    rubricText: rubric.text,
+    buildPrompt: (previousErrors) =>
+      buildMonthlyPulsePrompt({
+        claims,
+        items,
+        monthStart: monthStartStr,
+        monthEnd: monthEndStr,
+        rubricText: rubric.text,
+        previousErrors,
+      }),
+    generate: (prompt) => llm.generateStructured<MonthlyPulseContent>(prompt, {}),
+    validate: (c) => validateMonthlyPulse(c, OUTPUT_LIMITS.MONTHLY_PULSE_MAX_WORDS),
   });
 
-  let content: MonthlyPulseContent | null = null;
-  let validationStatus: GenerationResult["validationStatus"] = "REJECTED";
-  let attempts = 0;
-  let lastErrors: string[] = [];
-
-  while (attempts < OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS) {
-    attempts++;
-    content = await llm.generateStructured<MonthlyPulseContent>(prompt, {});
-
-    const validation = validateMonthlyPulse(
-      content,
-      OUTPUT_LIMITS.MONTHLY_PULSE_MAX_WORDS,
-    );
-    if (validation.valid) {
-      validationStatus = attempts > 1 ? "REGENERATED" : "PASSED";
-      break;
-    }
-    lastErrors = validation.errors;
-  }
+  const content = trust.content;
+  const validationStatus = trust.status;
+  const attempts = trust.attempts;
 
   if (validationStatus === "REJECTED") {
-    console.error(`Monthly pulse rejected after ${attempts} attempts:`, lastErrors);
+    console.error(`Monthly pulse rejected after ${attempts} attempts:`, trust.errors);
   }
 
   if (!content) throw new Error("Failed to generate monthly pulse content");
@@ -86,6 +87,8 @@ export async function generateMonthlyPulse(
       content: JSON.parse(contentJson),
       wordCount,
       validationStatus,
+      rubricVersion: rubric.version,
+      judgeVerdict: trust.judgeVerdict ? JSON.parse(JSON.stringify(trust.judgeVerdict)) : undefined,
       generationMetadata: { attempts, generatedAt: now.toISOString() },
       intelligenceItems: {
         connect: items.map((item) => ({ id: item.id })),

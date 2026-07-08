@@ -56,7 +56,8 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const mockLLM = {
-  classifyStructured: vi.fn(),
+  // Judge call (step: "judge") — default to a clean pass (no violations).
+  classifyStructured: vi.fn().mockResolvedValue({ violations: [] }),
   generateStructured: vi
     .fn()
     .mockResolvedValue(validContent),
@@ -65,6 +66,7 @@ const mockLLM = {
 describe("generateWeeklyPulse", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLLM.classifyStructured.mockResolvedValue({ violations: [] });
     mockLLM.generateStructured.mockResolvedValue(validContent);
     mockItemFindMany.mockResolvedValue([
       {
@@ -101,9 +103,9 @@ describe("generateWeeklyPulse", () => {
 
     expect(mockItemFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { detectedAt: { gte: expect.any(Date) } },
+        where: { eventDate: { gte: expect.any(Date) }, simulated: false },
         include: { competitor: true },
-        orderBy: { detectedAt: "desc" },
+        orderBy: { eventDate: "desc" },
       }),
     );
   });

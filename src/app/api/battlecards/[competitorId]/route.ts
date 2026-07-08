@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { EvidenceTier } from "@/generated/prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { resolveCurrentRevision } from "@/lib/battlecard/sections";
 import type {
   QuickDismiss,
   WhyWeWinPoint,
@@ -13,6 +14,13 @@ interface BattlecardWeakness {
   text: string;
   evidenceTier: EvidenceTier;
   sourceUrl: string;
+}
+
+interface RevisionReframe {
+  weakness: string;
+  reframe: string;
+  antiReframe: string;
+  evidenceTier: EvidenceTier;
 }
 
 export async function GET(
@@ -57,6 +65,41 @@ export async function GET(
     );
   }
 
+  // Living sections (U18): overlay the latest PASSED/REGENERATED revision per
+  // section on top of the curated baseline. FLAGGED/REJECTED revisions are ignored
+  // (the last good one still shows). Sections with no revision fall back to the
+  // static card. History is stored but not surfaced yet.
+  const sections = await prisma.battlecardSection.findMany({
+    where: { competitorId },
+    include: { revisions: true },
+  });
+  const currentByKey = new Map<string, unknown>();
+  for (const s of sections) {
+    const current = resolveCurrentRevision(s.revisions);
+    if (current) currentByKey.set(s.sectionKey, current.content);
+  }
+
+  const staticReframes = battlecard.competitor.reframes.map((r) => ({
+    id: r.id,
+    weakness: r.weakness,
+    reframe: r.reframe,
+    antiReframe: r.antiReframe,
+    evidenceTier: r.evidenceTier,
+    sources: r.sourceItems.map((s) => s.sourceUrl),
+  }));
+
+  const reframesRevision = currentByKey.get("reframes") as RevisionReframe[] | undefined;
+  const reframes = reframesRevision
+    ? reframesRevision.map((r, i) => ({
+        id: `rev-reframe-${i}`,
+        weakness: r.weakness,
+        reframe: r.reframe,
+        antiReframe: r.antiReframe,
+        evidenceTier: r.evidenceTier,
+        sources: [] as string[],
+      }))
+    : staticReframes;
+
   return NextResponse.json({
     competitor: {
       id: battlecard.competitor.id,
@@ -66,20 +109,20 @@ export async function GET(
     whenTheyComeUp: battlecard.whenTheyComeUp,
     // Safe casts: Prisma Json fields validated at write time (seed.ts / battlecard generator)
     theirPitch: battlecard.theirPitch as string[],
-    weaknesses: battlecard.weaknesses as unknown as BattlecardWeakness[],
-    reframes: battlecard.competitor.reframes.map((r) => ({
-      id: r.id,
-      weakness: r.weakness,
-      reframe: r.reframe,
-      antiReframe: r.antiReframe,
-      evidenceTier: r.evidenceTier,
-      sources: r.sourceItems.map((s) => s.sourceUrl),
-    })),
-    openQuestions: battlecard.openQuestions as string[], // Safe cast: validated at write time
+    weaknesses:
+      (currentByKey.get("weaknesses") as BattlecardWeakness[] | undefined) ??
+      (battlecard.weaknesses as unknown as BattlecardWeakness[]),
+    reframes,
+    openQuestions:
+      (currentByKey.get("openQuestions") as string[] | undefined) ??
+      (battlecard.openQuestions as string[]), // Safe cast: validated at write time
     overview: battlecard.overview,
     quickDismiss: battlecard.quickDismiss as QuickDismiss | null,
     whyWeWin: (battlecard.whyWeWin as unknown as WhyWeWinPoint[] | null) ?? [],
-    whyWeLose: (battlecard.whyWeLose as unknown as WhyWeLosePoint[] | null) ?? [],
+    whyWeLose:
+      (currentByKey.get("whyWeLose") as WhyWeLosePoint[] | undefined) ??
+      (battlecard.whyWeLose as unknown as WhyWeLosePoint[] | null) ??
+      [],
     trapQuestions: (battlecard.trapQuestions as unknown as TrapQuestion[] | null) ?? [],
     proofPoints: (battlecard.proofPoints as unknown as ProofPoint[] | null) ?? [],
     lastUpdated: battlecard.updatedAt.toISOString(),

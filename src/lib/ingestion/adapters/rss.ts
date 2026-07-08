@@ -17,24 +17,23 @@ const parser: Parser<Record<string, unknown>, RssItem> = new Parser({
 export class RssAdapter implements IngestionAdapter {
   readonly sourceType: SourceType = "PRESS_RSS";
 
-  /** Store parsed items so detectChanges can split them. */
-  private lastFeedItems: RssItem[] = [];
-
   async fetch(source: DataSource): Promise<RawContent> {
     const feed = await parser.parseURL(source.url);
-    this.lastFeedItems = feed.items ?? [];
+    const feedItems = feed.items ?? [];
 
     // Combined content for hash-based change detection
-    const content = this.lastFeedItems
+    const content = feedItems
       .map(
         (item) => `${item.title ?? ""}\n${item.contentSnippet ?? ""}`.trim(),
       )
       .join("\n\n");
 
+    // Parsed items travel through the payload (stateless — safe for concurrency).
     return {
       content,
       url: source.url,
       fetchedAt: new Date(),
+      payload: feedItems,
     };
   }
 
@@ -49,8 +48,8 @@ export class RssAdapter implements IngestionAdapter {
 
     const isFirstRun = previousHash === null;
 
-    let items = this.lastFeedItems
-      .filter((item) => item.title || item.contentSnippet);
+    const feedItems = (current.payload as RssItem[] | undefined) ?? [];
+    let items = feedItems.filter((item) => item.title || item.contentSnippet);
 
     // On first run, filter out old backlog articles and cap volume.
     // On subsequent runs, URL dedup in the runner handles repeat articles.

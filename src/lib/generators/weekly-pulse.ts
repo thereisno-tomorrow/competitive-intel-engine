@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildWeeklyPulsePrompt } from "@/lib/llm/prompts/weekly-pulse";
-import { validateWeeklyPulse } from "@/lib/synthesis/validators";
+import { loadRubric } from "@/lib/llm/rubric";
+import { validateWeeklyPulse, validateTierMonotonicity } from "@/lib/synthesis/validators";
+import { runTrustPipeline } from "@/lib/synthesis/trust-pipeline";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { WeeklyPulseContent } from "@/types";
 
@@ -32,35 +34,47 @@ export async function generateWeeklyPulse(
     prisma.positioningClaim.findMany(),
   ]);
 
-  const prompt = buildWeeklyPulsePrompt({
-    claims,
-    items,
-    weekStart: weekStart.toISOString().split("T")[0] ?? "",
-    weekEnd: now.toISOString().split("T")[0] ?? "",
+  const rubric = loadRubric();
+  const weekStartStr = weekStart.toISOString().split("T")[0] ?? "";
+  const weekEndStr = now.toISOString().split("T")[0] ?? "";
+
+  // Two-gate trust pipeline: validators → adversarial judge → publish/retry (U9/U10).
+  const trust = await runTrustPipeline<WeeklyPulseContent>({
+    llm,
+    maxAttempts: OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS,
+    outputType: "Weekly Pulse",
+    rubricText: rubric.text,
+    buildPrompt: (previousErrors) =>
+      buildWeeklyPulsePrompt({
+        claims,
+        items,
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        rubricText: rubric.text,
+        previousErrors,
+      }),
+    generate: (prompt) => llm.generateStructured<WeeklyPulseContent>(prompt, {}),
+    validate: (c) => {
+      const base = validateWeeklyPulse(c, OUTPUT_LIMITS.WEEKLY_PULSE_MAX_WORDS);
+      // Tier monotonicity (U12): no signal may out-claim its cited sources.
+      const asserted = (c.sections?.topSignals ?? []).map((s) => s.evidenceTier);
+      const mono = validateTierMonotonicity(
+        asserted,
+        items.map((i) => i.evidenceTier),
+      );
+      return {
+        valid: base.valid && mono.valid,
+        errors: [...base.errors, ...mono.errors],
+      };
+    },
   });
 
-  let content: WeeklyPulseContent | null = null;
-  let validationStatus: GenerationResult["validationStatus"] = "REJECTED";
-  let attempts = 0;
-  let lastErrors: string[] = [];
-
-  while (attempts < OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS) {
-    attempts++;
-    content = await llm.generateStructured<WeeklyPulseContent>(prompt, {});
-
-    const validation = validateWeeklyPulse(
-      content,
-      OUTPUT_LIMITS.WEEKLY_PULSE_MAX_WORDS,
-    );
-    if (validation.valid) {
-      validationStatus = attempts > 1 ? "REGENERATED" : "PASSED";
-      break;
-    }
-    lastErrors = validation.errors;
-  }
+  const content = trust.content;
+  const validationStatus = trust.status;
+  const attempts = trust.attempts;
 
   if (validationStatus === "REJECTED") {
-    console.error(`Weekly pulse rejected after ${attempts} attempts:`, lastErrors);
+    console.error(`Weekly pulse rejected after ${attempts} attempts:`, trust.errors);
   }
 
   if (!content) throw new Error("Failed to generate weekly pulse content");
@@ -81,6 +95,8 @@ export async function generateWeeklyPulse(
       content: JSON.parse(contentJson),
       wordCount,
       validationStatus,
+      rubricVersion: rubric.version,
+      judgeVerdict: trust.judgeVerdict ? JSON.parse(JSON.stringify(trust.judgeVerdict)) : undefined,
       generationMetadata: { attempts, generatedAt: now.toISOString() },
       intelligenceItems: {
         connect: items.map((item) => ({ id: item.id })),

@@ -53,7 +53,8 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const mockLLM = {
-  classifyStructured: vi.fn(),
+  // Judge call (step: "judge") — default to a clean pass (no violations).
+  classifyStructured: vi.fn().mockResolvedValue({ violations: [] }),
   generateStructured: vi
     .fn()
     .mockResolvedValue(validContent),
@@ -62,6 +63,7 @@ const mockLLM = {
 describe("generateSignalAlert", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLLM.classifyStructured.mockResolvedValue({ violations: [] });
     mockLLM.generateStructured.mockResolvedValue(validContent);
     mockItemFindUnique.mockResolvedValue(mockItem);
     mockOutputFindMany.mockResolvedValue([]);

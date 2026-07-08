@@ -7,6 +7,17 @@ interface WeeklyPulsePromptContext {
   items: (IntelligenceItem & { competitor: Competitor })[];
   weekStart: string;
   weekEnd: string;
+  /** Owner-editable strategy/rubric text (U8), injected as the quality bar. */
+  rubricText?: string;
+  /** Specific validator failure reasons from the previous attempt (U9). */
+  previousErrors?: string[];
+}
+
+/** Build the "your last attempt failed because…" retry block (U9). */
+export function buildRetryFeedbackBlock(previousErrors?: string[]): string {
+  if (!previousErrors || previousErrors.length === 0) return "";
+  const list = previousErrors.map((e) => `- ${e}`).join("\n");
+  return `\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix these specific problems — do not repeat them:\n${list}\n`;
 }
 
 export function buildWeeklyPulsePrompt(ctx: WeeklyPulsePromptContext): string {
@@ -22,9 +33,15 @@ export function buildWeeklyPulsePrompt(ctx: WeeklyPulsePromptContext): string {
         )
         .join("\n");
 
-  return `You are ${COMPANY_NAME}'s competitive intelligence analyst, writing the CMO's Monday morning briefing.
+  const rubricBlock = ctx.rubricText
+    ? `\nGTM ANALYSIS STANDARDS (the quality bar — apply Part A to this pulse):\n${ctx.rubricText}\n`
+    : "";
+  const feedbackBlock = buildRetryFeedbackBlock(ctx.previousErrors);
 
+  return `You are ${COMPANY_NAME}'s competitive intelligence analyst, writing the CMO's Monday morning briefing.
+${feedbackBlock}
 ${COMPANY_STRATEGIC_CONTEXT}
+${rubricBlock}
 
 ${SYNTHESIS_RUBRIC}
 
