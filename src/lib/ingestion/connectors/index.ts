@@ -1,5 +1,7 @@
 import type { ConnectorRegistry } from "../connector";
 import { createRegulatoryConnector } from "./regulatory";
+import { createJobsConnector } from "./jobs";
+import { createSeoConnector } from "./seo";
 
 /**
  * The default connector registry (plain Record — KTD7). New source connectors
@@ -9,6 +11,8 @@ import { createRegulatoryConnector } from "./regulatory";
 export function createDefaultConnectors(): ConnectorRegistry {
   return {
     REGULATORY: createRegulatoryConnector(),
-    // JOB_POSTING (U21), SEO (U22), LINKEDIN (U23) added below.
+    JOB_POSTING: createJobsConnector(),
+    SEO: createSeoConnector(),
+    // LINKEDIN (U23) uses the existing PhantomBuster adapter path (see runner).
   };
 }
