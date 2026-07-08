@@ -5,6 +5,7 @@ import {
   validateSignalAlert,
   validateBattlecardReframe,
   validateTierMonotonicity,
+  validateLossCondition,
   countWords,
 } from "../validators";
 import type { WeeklyPulseContent, MonthlyPulseContent, SignalAlertContent } from "@/types";
@@ -190,6 +191,24 @@ describe("validators", () => {
       );
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(2);
+    });
+  });
+
+  describe("validateLossCondition", () => {
+    it("fails an empty (all-'we win') section", () => {
+      expect(validateLossCondition([]).valid).toBe(false);
+      expect(validateLossCondition(null).valid).toBe(false);
+    });
+
+    it("fails a section of empty entries", () => {
+      expect(validateLossCondition([{ point: "" }, ""]).valid).toBe(false);
+    });
+
+    it("passes when at least one honest weakness/loss condition has substance", () => {
+      expect(
+        validateLossCondition([{ point: "Loses on 150+ country payouts", action: "qualify out" }]).valid,
+      ).toBe(true);
+      expect(validateLossCondition(["They win on breadth"]).valid).toBe(true);
     });
   });
 });

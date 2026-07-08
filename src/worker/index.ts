@@ -8,19 +8,10 @@ import { createBoss, registerWorkers } from "./queue";
 import { buildScheduleHandlers } from "./index-handlers";
 import { ingestJob } from "./jobs/ingest";
 import { generateJob } from "./jobs/generate";
+import { generateCardJob } from "./jobs/generate-card";
 import { writeHeartbeat } from "@/lib/health/heartbeat";
 import { HEARTBEAT } from "@/lib/config/thresholds";
-import type { GenerateCardJobData } from "./jobs/types";
-import type { JobRunner } from "./queue";
 import type { PgBoss } from "pg-boss";
-
-/**
- * Placeholder card-regen handler. Replaced by the real generator in U16; the
- * generate-card queue isn't enqueued until U17, so a no-op is safe for Phase 1.
- */
-const generateCardPlaceholder: JobRunner<GenerateCardJobData> = async (data) => {
-  console.log("[job:generate-card] placeholder (U16 wires the generator):", data.competitorId);
-};
 
 export interface WorkerRuntime {
   boss: PgBoss;
@@ -38,7 +29,7 @@ export async function startWorker(): Promise<WorkerRuntime> {
   await registerWorkers(boss, {
     ingest: ingestJob,
     generate: generateJob,
-    generateCard: generateCardPlaceholder,
+    generateCard: generateCardJob,
   });
 
   const schedule = startSchedule(buildScheduleHandlers(boss));

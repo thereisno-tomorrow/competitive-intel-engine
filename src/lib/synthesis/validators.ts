@@ -131,6 +131,33 @@ export function validateTierMonotonicity(
   return { valid: errors.length === 0, errors };
 }
 
+/**
+ * Loss-condition rule (U16, R7): a battlecard must carry at least one honest
+ * weakness / place where Finmo loses. An empty (all-"we win") section fails and
+ * feeds the retry loop. Applies to the weaknesses and whyWeLose sections.
+ */
+export function validateLossCondition(content: unknown): ValidationResult {
+  const arr = Array.isArray(content) ? content : [];
+  const substantive = arr.filter((entry) => {
+    if (typeof entry === "string") return entry.trim().length > 0;
+    if (entry && typeof entry === "object") {
+      return Object.values(entry as Record<string, unknown>).some(
+        (v) => typeof v === "string" && v.trim().length > 0,
+      );
+    }
+    return false;
+  });
+  if (substantive.length === 0) {
+    return {
+      valid: false,
+      errors: [
+        "Loss-condition rule: the card must state at least one honest weakness / place where we lose — an all-'we win' card is rejected",
+      ],
+    };
+  }
+  return { valid: true, errors: [] };
+}
+
 export function validateBattlecardReframe(evidenceTier: EvidenceTier): ValidationResult {
   if (evidenceTier !== "CONFIRMED") {
     return {
