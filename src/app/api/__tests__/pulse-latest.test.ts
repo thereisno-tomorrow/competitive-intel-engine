@@ -25,12 +25,16 @@ const mockSignalAlert = {
 
 const mockFindFirst = vi.fn();
 const mockFindMany = vi.fn();
+const mockClaimFindMany = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     generatedOutput: {
       findFirst: (...args: unknown[]) => mockFindFirst(...args),
       findMany: (...args: unknown[]) => mockFindMany(...args),
+    },
+    positioningClaim: {
+      findMany: (...args: unknown[]) => mockClaimFindMany(...args),
     },
   },
 }));
@@ -39,6 +43,7 @@ describe("GET /api/pulse/latest", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    mockClaimFindMany.mockResolvedValue([]);
   });
 
   it("returns 200 with latest pulse and signal alerts", async () => {
@@ -50,10 +55,10 @@ describe("GET /api/pulse/latest", () => {
     const json = await response.json();
 
     expect(response.status).toBe(200);
-    expect(json).toHaveProperty("type", "weekly");
-    expect(json).toHaveProperty("publishedAt");
-    expect(json).toHaveProperty("headline", mockPulse.headline);
-    expect(json).toHaveProperty("content");
+    expect(json).toHaveProperty("latestWeekly");
+    expect(json.latestWeekly).toHaveProperty("headline", mockPulse.headline);
+    expect(json.latestWeekly).toHaveProperty("publishedAt");
+    expect(json.latestWeekly).toHaveProperty("content");
     expect(json).toHaveProperty("signalAlertsThisWeek");
     expect(json.signalAlertsThisWeek).toBeInstanceOf(Array);
     expect(json.signalAlertsThisWeek).toHaveLength(1);
@@ -71,7 +76,7 @@ describe("GET /api/pulse/latest", () => {
     expect(json).toHaveProperty("code", "not_found");
   });
 
-  it("maps WEEKLY_PULSE type to 'weekly'", async () => {
+  it("returns latestWeekly when a weekly pulse exists", async () => {
     mockFindFirst.mockResolvedValue({ ...mockPulse, type: "WEEKLY_PULSE" });
     mockFindMany.mockResolvedValue([]);
 
@@ -79,10 +84,11 @@ describe("GET /api/pulse/latest", () => {
     const response = await GET();
     const json = await response.json();
 
-    expect(json.type).toBe("weekly");
+    expect(json.latestWeekly).not.toBeNull();
+    expect(json.latestWeekly.headline).toBe(mockPulse.headline);
   });
 
-  it("maps MONTHLY_PULSE type to 'monthly'", async () => {
+  it("returns latestMonthly when a monthly pulse exists", async () => {
     mockFindFirst.mockResolvedValue({ ...mockPulse, type: "MONTHLY_PULSE" });
     mockFindMany.mockResolvedValue([]);
 
@@ -90,7 +96,7 @@ describe("GET /api/pulse/latest", () => {
     const response = await GET();
     const json = await response.json();
 
-    expect(json.type).toBe("monthly");
+    expect(json.latestMonthly).not.toBeNull();
   });
 
   it("returns publishedAt as ISO string", async () => {
@@ -101,7 +107,7 @@ describe("GET /api/pulse/latest", () => {
     const response = await GET();
     const json = await response.json();
 
-    expect(json.publishedAt).toBe("2025-06-09T08:00:00.000Z");
+    expect(json.latestWeekly.publishedAt).toBe("2025-06-09T08:00:00.000Z");
   });
 
   it("maps signal alert fields correctly", async () => {
@@ -128,7 +134,7 @@ describe("GET /api/pulse/latest", () => {
     expect(mockFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          type: { in: ["WEEKLY_PULSE", "MONTHLY_PULSE"] },
+          type: "WEEKLY_PULSE",
           validationStatus: { in: ["PASSED", "REGENERATED"] },
         }),
         orderBy: { publishedAt: "desc" },

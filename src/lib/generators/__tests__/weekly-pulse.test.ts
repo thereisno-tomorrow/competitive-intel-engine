@@ -101,9 +101,9 @@ describe("generateWeeklyPulse", () => {
 
     expect(mockItemFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { detectedAt: { gte: expect.any(Date) } },
+        where: { eventDate: { gte: expect.any(Date) }, simulated: false },
         include: { competitor: true },
-        orderBy: { detectedAt: "desc" },
+        orderBy: { eventDate: "desc" },
       }),
     );
   });

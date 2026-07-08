@@ -131,17 +131,17 @@ describe("generateMonthlyPulse", () => {
 
     expect(mockItemFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { detectedAt: { gte: expect.any(Date) } },
+        where: { eventDate: { gte: expect.any(Date) }, simulated: false },
         include: { competitor: true },
-        orderBy: { detectedAt: "desc" },
+        orderBy: { eventDate: "desc" },
       }),
     );
 
     // Verify the date is roughly 30 days ago
     const callArgs = mockItemFindMany.mock.calls[0]?.[0] as {
-      where: { detectedAt: { gte: Date } };
+      where: { eventDate: { gte: Date } };
     };
-    const dateDiff = Date.now() - callArgs.where.detectedAt.gte.getTime();
+    const dateDiff = Date.now() - callArgs.where.eventDate.gte.getTime();
     const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
     expect(daysDiff).toBeGreaterThan(29);
     expect(daysDiff).toBeLessThan(31);
