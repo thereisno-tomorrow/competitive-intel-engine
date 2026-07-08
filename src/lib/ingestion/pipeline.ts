@@ -9,6 +9,7 @@ import {
 } from "./adapters/html-page";
 import { RssAdapter } from "./adapters/rss";
 import { LinkedInAdapter } from "./adapters/linkedin";
+import { createDefaultConnectors } from "./connectors";
 
 /**
  * Build the default adapter set. LinkedIn is included only when a PhantomBuster
@@ -28,8 +29,12 @@ export function createDefaultAdapters(): Map<SourceType, IngestionAdapter> {
   return adapters;
 }
 
-/** Run the full ingestion pipeline with the default adapters. */
+/** Run the full ingestion pipeline with the default adapters + connectors. */
 export function runIngestionPipeline(llm: LLMProvider) {
-  const runner = new IngestionRunner(createDefaultAdapters(), llm);
+  const runner = new IngestionRunner(
+    createDefaultAdapters(),
+    llm,
+    createDefaultConnectors(),
+  );
   return runner.run();
 }
