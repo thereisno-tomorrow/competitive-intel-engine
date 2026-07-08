@@ -4,7 +4,7 @@ import { evaluateAlertThreshold } from "@/lib/synthesis/alert-evaluator";
 import { generateSignalAlert } from "@/lib/generators/signal-alert";
 import { generateWeeklyPulse } from "@/lib/generators/weekly-pulse";
 import { generateMonthlyPulse } from "@/lib/generators/monthly-pulse";
-import { ClaudeProvider } from "@/lib/llm/claude";
+import { createLLMProvider } from "@/lib/llm/factory";
 import { SCHEDULE } from "@/lib/config/thresholds";
 import { validateCronSecret } from "@/lib/auth";
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   }
 
   const url = new URL(request.url);
-  const llm = new ClaudeProvider();
+  const llm = createLLMProvider();
   const forceGenerate = url.searchParams.get("force") === "true";
   const pulseOnly = url.searchParams.get("pulseOnly") === "true";
   const result: GenerateResult = {

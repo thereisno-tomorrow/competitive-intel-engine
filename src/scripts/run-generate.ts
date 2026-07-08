@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { prisma } from "../lib/db";
-import { ClaudeProvider } from "../lib/llm/claude";
+import { createLLMProvider } from "../lib/llm/factory";
 import { generateWeeklyPulse } from "../lib/generators/weekly-pulse";
 import { generateMonthlyPulse } from "../lib/generators/monthly-pulse";
 import { generateSignalAlert } from "../lib/generators/signal-alert";
@@ -16,7 +16,7 @@ async function main() {
   const monthlyOnly = args.includes("--monthly");
   const alertsOnly = args.includes("--alerts");
 
-  const llm = new ClaudeProvider();
+  const llm = createLLMProvider();
   const start = Date.now();
 
   // Pulses

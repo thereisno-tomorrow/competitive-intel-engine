@@ -5,7 +5,7 @@ import type { IngestionAdapter } from "@/lib/ingestion/adapters/base";
 import { WebsiteAdapter, ChangelogAdapter, StatusPageAdapter } from "@/lib/ingestion/adapters/html-page";
 import { RssAdapter } from "@/lib/ingestion/adapters/rss";
 import { LinkedInAdapter } from "@/lib/ingestion/adapters/linkedin";
-import { ClaudeProvider } from "@/lib/llm/claude";
+import { createLLMProvider } from "@/lib/llm/factory";
 import { validateCronSecret } from "@/lib/auth";
 
 export const maxDuration = 300;
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     adapters.set("LINKEDIN", new LinkedInAdapter());
   }
 
-  const llm = new ClaudeProvider();
+  const llm = createLLMProvider();
   const runner = new IngestionRunner(adapters, llm);
 
   try {

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlock } from "@anthropic-ai/sdk/resources/messages";
 import type { LLMProvider } from "./provider";
+import { parseStructured } from "./json";
 
 const SONNET_MODEL = "claude-sonnet-4-5-20250929";
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
@@ -14,12 +15,30 @@ function extractText(content: ContentBlock[], fallback: string = ""): string {
   return fallback;
 }
 
-/** Strip markdown code fences that LLMs sometimes wrap around JSON output. */
-function stripFences(text: string): string {
-  return text
-    .replace(/^```(?:json)?\s*\n?/m, "")
-    .replace(/\n?```\s*$/m, "")
-    .trim();
+/**
+ * Low-level single-turn Anthropic completion, returning raw assistant text.
+ * Used by the LLM factory for steps that route to a bare `claude-*` model.
+ */
+export class AnthropicClient {
+  private client: Anthropic;
+
+  constructor() {
+    this.client = new Anthropic();
+  }
+
+  async complete(model: string, prompt: string, maxTokens: number): Promise<string> {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error(
+        `ANTHROPIC_API_KEY is required to call Anthropic model "${model}" but is not set.`,
+      );
+    }
+    const response = await this.client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return extractText(response.content, "{}");
+  }
 }
 
 export class ClaudeProvider implements LLMProvider {
@@ -66,7 +85,7 @@ export class ClaudeProvider implements LLMProvider {
     });
 
     const text = extractText(response.content, "{}");
-    return JSON.parse(stripFences(text)) as T;
+    return parseStructured<T>(text);
   }
 
   async generateStructured<T>(prompt: string, context: Record<string, unknown>, options?: { fast?: boolean }): Promise<T> {
@@ -86,6 +105,6 @@ export class ClaudeProvider implements LLMProvider {
     });
 
     const text = extractText(response.content, "{}");
-    return JSON.parse(stripFences(text)) as T;
+    return parseStructured<T>(text);
   }
 }

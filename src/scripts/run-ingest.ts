@@ -4,7 +4,7 @@ import { IngestionRunner } from "../lib/ingestion/runner";
 import type { IngestionAdapter } from "../lib/ingestion/adapters/base";
 import { WebsiteAdapter, ChangelogAdapter, StatusPageAdapter } from "../lib/ingestion/adapters/html-page";
 import { RssAdapter } from "../lib/ingestion/adapters/rss";
-import { ClaudeProvider } from "../lib/llm/claude";
+import { createLLMProvider } from "../lib/llm/factory";
 
 const adapters = new Map<SourceType, IngestionAdapter>([
   ["WEBSITE", new WebsiteAdapter()],
@@ -13,7 +13,7 @@ const adapters = new Map<SourceType, IngestionAdapter>([
   ["STATUS_PAGE", new StatusPageAdapter()],
 ]);
 
-const llm = new ClaudeProvider();
+const llm = createLLMProvider();
 const runner = new IngestionRunner(adapters, llm);
 
 async function main() {
