@@ -41,12 +41,14 @@ interface LinkedInCompanyInfo {
 
 const PB_URL_REGEX = /^pb:\/\/([^/]+)\/(posts|jobs|company)$/;
 
+/** Parsed LinkedIn payload passed from fetch() to detectChanges() (stateless). */
+interface LinkedInPayload {
+  phantomType: PhantomType;
+  results: unknown[];
+}
+
 export class LinkedInAdapter implements IngestionAdapter {
   readonly sourceType: SourceType = "LINKEDIN";
-
-  /** Cached results from the last fetch, used by detectChanges. */
-  private lastResults: unknown[] = [];
-  private lastPhantomType: PhantomType = "posts";
 
   private client: PhantomBusterClient;
 
@@ -56,51 +58,60 @@ export class LinkedInAdapter implements IngestionAdapter {
     });
   }
 
+  private empty(source: DataSource, phantomType: PhantomType): RawContent {
+    const payload: LinkedInPayload = { phantomType, results: [] };
+    return { content: "", url: source.url, fetchedAt: new Date(), payload };
+  }
+
   async fetch(source: DataSource): Promise<RawContent> {
     const { agentId, phantomType } = parsePhantomUrl(source.url);
-    this.lastPhantomType = phantomType;
 
     let output;
     try {
       output = await this.client.fetchLatestOutput(agentId);
     } catch {
       // Phantom not found or API error — return empty content
-      this.lastResults = [];
-      return { content: "", url: source.url, fetchedAt: new Date() };
+      return this.empty(source, phantomType);
     }
 
     if (!output.resultObject) {
       // Phantom has never run or has no results
-      this.lastResults = [];
-      return { content: "", url: source.url, fetchedAt: new Date() };
+      return this.empty(source, phantomType);
     }
 
+    let results: unknown[];
     try {
-      this.lastResults = await this.client.fetchResultJson(output.resultObject);
+      results = await this.client.fetchResultJson(output.resultObject);
     } catch {
-      this.lastResults = [];
-      return { content: "", url: source.url, fetchedAt: new Date() };
+      return this.empty(source, phantomType);
     }
 
-    const content = JSON.stringify(this.lastResults);
-    return { content, url: source.url, fetchedAt: new Date() };
+    const payload: LinkedInPayload = { phantomType, results };
+    return {
+      content: JSON.stringify(results),
+      url: source.url,
+      fetchedAt: new Date(),
+      payload,
+    };
   }
 
   async detectChanges(
     current: RawContent,
     previousHash: string | null,
   ): Promise<DetectedChange[]> {
-    if (!current.content || this.lastResults.length === 0) {
+    const payload = current.payload as LinkedInPayload | undefined;
+    const results = payload?.results ?? [];
+    if (!current.content || results.length === 0) {
       return [];
     }
 
-    switch (this.lastPhantomType) {
+    switch (payload?.phantomType) {
       case "posts":
-        return this.detectPostChanges(previousHash);
+        return this.detectPostChanges(results, previousHash);
       case "jobs":
-        return this.detectJobChanges(previousHash);
+        return this.detectJobChanges(results, previousHash);
       case "company":
-        return this.detectCompanyChanges(current, previousHash);
+        return this.detectCompanyChanges(results, current, previousHash);
       default:
         return [];
     }
@@ -110,8 +121,11 @@ export class LinkedInAdapter implements IngestionAdapter {
   // Posts
   // ---------------------------------------------------------------------------
 
-  private detectPostChanges(previousHash: string | null): DetectedChange[] {
-    const posts = this.lastResults as LinkedInPost[];
+  private detectPostChanges(
+    results: unknown[],
+    previousHash: string | null,
+  ): DetectedChange[] {
+    const posts = results as LinkedInPost[];
     const isFirstRun = previousHash === null;
 
     let items = posts.filter((p) => p.text || p.postUrl);
@@ -141,8 +155,11 @@ export class LinkedInAdapter implements IngestionAdapter {
   // Jobs
   // ---------------------------------------------------------------------------
 
-  private detectJobChanges(previousHash: string | null): DetectedChange[] {
-    const jobs = this.lastResults as LinkedInJob[];
+  private detectJobChanges(
+    results: unknown[],
+    previousHash: string | null,
+  ): DetectedChange[] {
+    const jobs = results as LinkedInJob[];
     const isFirstRun = previousHash === null;
 
     let items = jobs.filter((j) => j.title || j.jobUrl);
@@ -167,6 +184,7 @@ export class LinkedInAdapter implements IngestionAdapter {
   // ---------------------------------------------------------------------------
 
   private detectCompanyChanges(
+    results: unknown[],
     current: RawContent,
     previousHash: string | null,
   ): DetectedChange[] {
@@ -179,7 +197,7 @@ export class LinkedInAdapter implements IngestionAdapter {
       return [];
     }
 
-    const companies = this.lastResults as LinkedInCompanyInfo[];
+    const companies = results as LinkedInCompanyInfo[];
     const info = companies[0];
     if (!info) return [];
 

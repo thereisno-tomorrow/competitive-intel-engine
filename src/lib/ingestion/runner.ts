@@ -145,6 +145,12 @@ export class IngestionRunner {
     await this.storeItems(classified, claims, stats);
     this.log("STORE", `${classified.length} → ${stats.itemsCreated} created (${stats.fingerprintDedupSkipped} fingerprint conflicts)`);
 
+    // Phase 7: REMEMBER-COMMIT — record ALL collected EVENT URLs as seen only
+    // now that STORE succeeded. A crash before this point leaves URLs unseen so a
+    // re-run reprocesses them (no silent data loss). (R13)
+    await this.recordSeen(collected);
+    this.log("SEEN", `recorded ${collected.length} URLs as seen (post-store)`);
+
     // ─── STATE SOURCES (existing per-source logic, unchanged) ─────
 
     await this.processStateSources(stateSources, claims, stats);
@@ -249,20 +255,10 @@ export class IngestionRunner {
       }
     }
 
-    // 3. Record ALL URLs as seen (including ones we'll cap below)
-    const records = items.map((item) => ({
-      sourceId: item.sourceId,
-      articleUrl: item.url,
-    }));
-
-    // Batch insert in chunks to avoid query size limits
-    const CHUNK = 500;
-    for (let i = 0; i < records.length; i += CHUNK) {
-      await prisma.seenArticle.createMany({
-        data: records.slice(i, i + CHUNK),
-        skipDuplicates: true,
-      });
-    }
+    // NOTE: recording URLs as "seen" is deliberately deferred until AFTER a
+    // successful STORE (see recordSeen, called from run()). Recording here would
+    // mean a crash between REMEMBER and STORE silently loses new articles: they'd
+    // be marked seen but never stored, and never reprocessed. (R13)
 
     // 3b. Pre-filter: drop articles that do not mention the competitor name.
     // Trade press firehose feeds contain hundreds of irrelevant articles.
@@ -292,6 +288,24 @@ export class IngestionRunner {
     }
 
     return mentionFiltered;
+  }
+
+  // ─── Phase 7: REMEMBER-COMMIT (seen-after-store) ─────────────────
+
+  /** Record collected EVENT URLs as seen. Called only after a successful STORE. */
+  private async recordSeen(items: PipelineItem[]): Promise<void> {
+    if (items.length === 0) return;
+    const records = items.map((item) => ({
+      sourceId: item.sourceId,
+      articleUrl: item.url,
+    }));
+    const CHUNK = 500;
+    for (let i = 0; i < records.length; i += CHUNK) {
+      await prisma.seenArticle.createMany({
+        data: records.slice(i, i + CHUNK),
+        skipDuplicates: true,
+      });
+    }
   }
 
   // ─── Phase 6: ENRICH ─────────────────────────────────────────────
