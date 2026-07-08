@@ -34,10 +34,13 @@ Check especially:
 - Genuine concessions (R5): where a strength exists, is it conceded plainly?
 - Honest loss conditions (R11): does it admit where ${COMPANY_NAME} loses, or is it all "we win"?
 
-OUTPUT FORMAT: Respond with ONLY valid JSON of this exact shape — a list of violations (empty list = clean pass). Do NOT include any rewritten content, suggestions, or fixed text; report violations only:
+OUTPUT FORMAT: Respond with ONLY valid JSON of this exact shape. "violations" are blocking (any → FAIL); "warnings" are non-blocking soft concerns that don't fail the draft but merit a human glance (they route the output to a review queue). Empty violations = pass. Do NOT include any rewritten content, suggestions, or fixed text; report violations/warnings only:
 {
   "violations": [
     { "code": "SHORT_UPPER_SNAKE_CODE", "message": "one concrete sentence naming the specific problem" }
+  ],
+  "warnings": [
+    { "code": "SHORT_UPPER_SNAKE_CODE", "message": "a borderline concern worth a human glance, but not disqualifying" }
   ]
 }`;
 }

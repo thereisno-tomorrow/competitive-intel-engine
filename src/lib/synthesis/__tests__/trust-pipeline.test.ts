@@ -83,4 +83,34 @@ describe("runTrustPipeline", () => {
     expect(result.status).toBe("REJECTED");
     expect(result.judgeVerdict?.pass).toBe(false);
   });
+
+  // --- U13: three-outcome close-call routing ---
+
+  it("FLAGGED when the judge passes but raises soft warnings", async () => {
+    const { llm } = makeLLM([
+      { violations: [], warnings: [{ code: "SOFT_CONCERN", message: "borderline" }] },
+    ]);
+    const result = await runTrustPipeline({
+      ...base,
+      llm,
+      validate: () => ({ valid: true, errors: [] }),
+    });
+    expect(result.status).toBe("FLAGGED");
+    expect(result.judgeVerdict?.warnings[0]?.code).toBe("SOFT_CONCERN");
+  });
+
+  it("FLAGGED when it only passes cleanly on the final allowed attempt", async () => {
+    const { llm } = makeLLM([
+      { violations: [{ code: "A", message: "1" }] },
+      { violations: [{ code: "B", message: "2" }] },
+      { violations: [], warnings: [] }, // clean pass, but on attempt 3 of 3
+    ]);
+    const result = await runTrustPipeline({
+      ...base,
+      llm,
+      validate: () => ({ valid: true, errors: [] }),
+    });
+    expect(result.status).toBe("FLAGGED");
+    expect(result.attempts).toBe(3);
+  });
 });

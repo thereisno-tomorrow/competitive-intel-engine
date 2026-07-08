@@ -11,6 +11,8 @@ export interface JudgeViolation {
 export interface JudgeVerdict {
   pass: boolean;
   violations: JudgeViolation[];
+  /** Non-blocking concerns: a pass WITH warnings is a "close call" → FLAGGED (U13). */
+  warnings: JudgeViolation[];
 }
 
 interface JudgeArgs {
@@ -22,6 +24,7 @@ interface JudgeArgs {
 /** Raw shape we accept from the model (extra fields are ignored/stripped). */
 interface RawJudgeResponse {
   violations?: unknown;
+  warnings?: unknown;
 }
 
 /**
@@ -63,10 +66,12 @@ export async function judgeOutput(
           message: "Judge returned no parseable violations array; failing closed.",
         },
       ],
+      warnings: [],
     };
   }
 
-  return { pass: violations.length === 0, violations };
+  const warnings = normalizeViolations(raw?.warnings) ?? [];
+  return { pass: violations.length === 0, violations, warnings };
 }
 
 /**

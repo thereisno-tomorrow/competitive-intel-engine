@@ -3,12 +3,89 @@
 import { useState, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBattlecards, useBattlecard } from "@/lib/hooks/use-battlecards";
+import { useFlagged, useResolveFlagged, type FlaggedItem } from "@/lib/hooks/use-flagged";
 import { EvidenceTierBadge } from "@/components/shared/evidence-tier-badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { BattlecardSummary } from "@/types";
 import type { EvidenceTier } from "@/generated/prisma/client";
+
+// === Flagged Review (U13) ===
+
+function FlaggedReviewItem({ item }: { item: FlaggedItem }) {
+  const resolve = useResolveFlagged();
+  const warnings = item.judgeVerdict?.warnings ?? [];
+  return (
+    <Card className="gap-3">
+      <CardContent className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-amber-600">
+              {item.type.replace(/_/g, " ")}
+            </span>
+            <p className="text-sm font-medium text-zinc-900">{item.headline}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              disabled={resolve.isPending}
+              onClick={() => resolve.mutate({ id: item.id, action: "approve" })}
+            >
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={resolve.isPending}
+              onClick={() => resolve.mutate({ id: item.id, action: "reject" })}
+            >
+              Reject
+            </Button>
+          </div>
+        </div>
+        {warnings.length > 0 && (
+          <ul className="space-y-1 border-l-2 border-amber-200 pl-3">
+            {warnings.map((w, i) => (
+              <li key={i} className="text-xs text-zinc-600">
+                <span className="font-mono text-amber-600">{w.code}</span>: {w.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FlaggedReviewSection() {
+  const { data, isLoading } = useFlagged();
+  const items = data?.items ?? [];
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-zinc-900">Needs a glance</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Borderline outputs the trust pipeline parked for review. Approve to publish, reject to hide.
+        </p>
+      </div>
+      {isLoading ? (
+        <div className="h-24 animate-pulse rounded-xl bg-zinc-100" />
+      ) : items.length === 0 ? (
+        <p className="text-sm text-zinc-400 italic">
+          Nothing flagged — everything published cleanly.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {items.map((item) => (
+            <FlaggedReviewItem key={item.id} item={item} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 // === Types ===
 
@@ -303,6 +380,10 @@ export default function AdminPage() {
           is fixed to Confirmed.
         </p>
       </header>
+
+      <Separator />
+
+      <FlaggedReviewSection />
 
       <Separator />
 

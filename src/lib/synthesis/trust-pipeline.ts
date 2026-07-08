@@ -32,8 +32,11 @@ export interface TrustPipelineOptions<T> {
  * on the stronger model and can only refute, never rewrite. A judge *call* failure
  * throws InfraFault out of here so the worker job retries — never a silent pass.
  *
- * Status semantics for U10: judge clean pass → PASSED/REGENERATED; all attempts
- * exhausted → REJECTED. The FLAGGED "close call" outcome is layered on in U13.
+ * Status semantics (U10 + U13, three outcomes):
+ * - clean pass (no judge warnings, passed before the final attempt) → PASSED/REGENERATED (published)
+ * - close call (judge passed but WITH warnings, or passed only on the final allowed
+ *   attempt) → FLAGGED (parked for a human glance; hidden from the public feed)
+ * - all attempts exhausted → REJECTED (hidden everywhere)
  */
 export async function runTrustPipeline<T>(
   opts: TrustPipelineOptions<T>,
@@ -63,13 +66,16 @@ export async function runTrustPipeline<T>(
     });
 
     if (judgeVerdict.pass) {
-      return {
-        content,
-        status: attempts > 1 ? "REGENERATED" : "PASSED",
-        attempts,
-        judgeVerdict,
-        errors: [],
-      };
+      // Close call → FLAGGED for a human glance (U13): the judge passed but raised
+      // soft warnings, or the draft only scraped through on the final allowed attempt.
+      const closeCall =
+        judgeVerdict.warnings.length > 0 || attempts === opts.maxAttempts;
+      const status: TrustStatus = closeCall
+        ? "FLAGGED"
+        : attempts > 1
+          ? "REGENERATED"
+          : "PASSED";
+      return { content, status, attempts, judgeVerdict, errors: [] };
     }
 
     // Judge failed → feed its specific violations back into the next attempt (U9).
