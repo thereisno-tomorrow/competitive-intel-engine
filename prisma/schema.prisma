@@ -133,6 +133,7 @@ model Competitor {
   reframes          BattlecardReframe[]
   threatenedClaims  PositioningClaim[] @relation("CompetitorThreats")
   contentBriefs     ContentBrief[]
+  battlecardSections BattlecardSection[]
 
   @@map("competitors")
 }
@@ -239,6 +240,46 @@ model Battlecard {
   competitor       Competitor   @relation(fields: [competitorId], references: [id])
 
   @@map("battlecards")
+}
+
+/// A living battlecard section (U15). One row per (competitor, sectionKey); the
+/// section's content lives in append-only revisions. "Current" = the latest
+/// PASSED/REGENERATED revision. Living sections start coarse: weaknesses,
+/// reframes, whyWeLose, openQuestions (KTD6/U17).
+model BattlecardSection {
+  id           String   @id @default(cuid())
+  competitorId String   @map("competitor_id")
+  sectionKey   String   @map("section_key")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  competitor   Competitor                  @relation(fields: [competitorId], references: [id])
+  revisions    BattlecardSectionRevision[]
+
+  @@unique([competitorId, sectionKey])
+  @@map("battlecard_sections")
+}
+
+/// Append-only revision of a battlecard section (U15). Revision 1 is the curated
+/// baseline (migrated from the hand-written cards); auto-revisions link to their
+/// parent and carry a diff + "what changed" note + the rubric version they used.
+model BattlecardSectionRevision {
+  id               String           @id @default(cuid())
+  sectionId        String           @map("section_id")
+  parentRevisionId String?          @map("parent_revision_id")
+  content          Json
+  diff             Json?
+  changeSummary    String?          @map("change_summary")
+  rubricVersion    String?          @map("rubric_version")
+  validationStatus ValidationStatus @default(PASSED) @map("validation_status")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  section          BattlecardSection           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  parentRevision   BattlecardSectionRevision?  @relation("RevisionParent", fields: [parentRevisionId], references: [id])
+  childRevisions   BattlecardSectionRevision[] @relation("RevisionParent")
+
+  @@index([sectionId, createdAt])
+  @@map("battlecard_section_revisions")
 }
 
 model GeneratedOutput {
