@@ -7,6 +7,8 @@ interface MonthlyPulsePromptContext {
   items: (IntelligenceItem & { competitor: Competitor })[];
   monthStart: string;
   monthEnd: string;
+  /** Owner-editable strategy/rubric text (U8), injected as the quality bar. */
+  rubricText?: string;
 }
 
 export function buildMonthlyPulsePrompt(ctx: MonthlyPulsePromptContext): string {
@@ -28,9 +30,14 @@ export function buildMonthlyPulsePrompt(ctx: MonthlyPulsePromptContext): string 
     ? "No Tier 2 competitor activity this month."
     : tier2Items.map(formatItem).join("\n");
 
+  const rubricBlock = ctx.rubricText
+    ? `\nGTM ANALYSIS STANDARDS (the quality bar — apply Part A to this briefing):\n${ctx.rubricText}\n`
+    : "";
+
   return `You are ${COMPANY_NAME}'s competitive intelligence analyst, writing the CMO's monthly strategic briefing. This is the most important CI output — it shapes positioning decisions, content strategy, and board-level narratives.
 
 ${COMPANY_STRATEGIC_CONTEXT}
+${rubricBlock}
 
 COMPETITIVE LANDSCAPE (threat models for all tracked competitors):
 ${getAllCompetitorProfiles()}

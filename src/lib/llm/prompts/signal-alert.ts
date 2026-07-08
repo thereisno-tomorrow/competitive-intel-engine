@@ -6,10 +6,15 @@ interface SignalAlertPromptContext {
   item: IntelligenceItem & { competitor: Competitor };
   claims: PositioningClaim[];
   alertReasons: string[];
+  /** Owner-editable strategy/rubric text (U8), injected as the quality bar. */
+  rubricText?: string;
 }
 
 export function buildSignalAlertPrompt(ctx: SignalAlertPromptContext): string {
   const { item } = ctx;
+  const rubricBlock = ctx.rubricText
+    ? `\nGTM ANALYSIS STANDARDS (the quality bar — apply Part A to this alert):\n${ctx.rubricText}\n`
+    : "";
 
   const claimsList = ctx.claims
     .map((c, i) => `${i + 1}. [${c.id}] "${c.claimText}" — Current status: ${c.currentStatus}`)
@@ -24,7 +29,7 @@ export function buildSignalAlertPrompt(ctx: SignalAlertPromptContext): string {
   return `You are ${COMPANY_NAME}'s competitive intelligence analyst, briefing the CMO on a significant competitive event.
 
 ${COMPANY_STRATEGIC_CONTEXT}
-
+${rubricBlock}
 COMPETITOR CONTEXT:
 ${competitorProfile}
 
@@ -41,7 +46,7 @@ TRIGGERING EVENT:
 - Evidence Tier: ${item.evidenceTier}
 - Source URL: ${item.sourceUrl ?? "N/A"}
 - Detected: ${item.detectedAt.toISOString()}
-- Company Implication: ${(item as any).companyImplication ?? "Not yet assessed"}
+- Company Implication: ${item.companyImplication ?? "Not yet assessed"}
 ${item.simulated ? "- STATUS: [SIMULATED DATA]\n" : ""}
 RAW CONTENT:
 ${item.rawContent ?? "No raw content available."}

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildSignalAlertPrompt } from "@/lib/llm/prompts/signal-alert";
+import { loadRubric } from "@/lib/llm/rubric";
 import { validateSignalAlert } from "@/lib/synthesis/validators";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { SignalAlertContent } from "@/types";
@@ -54,10 +55,12 @@ export async function generateSignalAlert(
   // Fetch positioning claims for context
   const claims = await prisma.positioningClaim.findMany();
 
+  const rubric = loadRubric();
   const prompt = buildSignalAlertPrompt({
     item,
     claims,
     alertReasons,
+    rubricText: rubric.text,
   });
 
   let content: SignalAlertContent | null = null;
@@ -101,6 +104,7 @@ export async function generateSignalAlert(
       content: JSON.parse(contentJson),
       wordCount,
       validationStatus,
+      rubricVersion: rubric.version,
       generationMetadata: {
         attempts,
         generatedAt: now.toISOString(),

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildWeeklyPulsePrompt } from "@/lib/llm/prompts/weekly-pulse";
+import { loadRubric } from "@/lib/llm/rubric";
 import { validateWeeklyPulse } from "@/lib/synthesis/validators";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { WeeklyPulseContent } from "@/types";
@@ -32,11 +33,13 @@ export async function generateWeeklyPulse(
     prisma.positioningClaim.findMany(),
   ]);
 
+  const rubric = loadRubric();
   const prompt = buildWeeklyPulsePrompt({
     claims,
     items,
     weekStart: weekStart.toISOString().split("T")[0] ?? "",
     weekEnd: now.toISOString().split("T")[0] ?? "",
+    rubricText: rubric.text,
   });
 
   let content: WeeklyPulseContent | null = null;
@@ -81,6 +84,7 @@ export async function generateWeeklyPulse(
       content: JSON.parse(contentJson),
       wordCount,
       validationStatus,
+      rubricVersion: rubric.version,
       generationMetadata: { attempts, generatedAt: now.toISOString() },
       intelligenceItems: {
         connect: items.map((item) => ({ id: item.id })),

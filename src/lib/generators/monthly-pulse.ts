@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildMonthlyPulsePrompt } from "@/lib/llm/prompts/monthly-pulse";
+import { loadRubric } from "@/lib/llm/rubric";
 import { validateMonthlyPulse } from "@/lib/synthesis/validators";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { MonthlyPulseContent } from "@/types";
@@ -32,11 +33,13 @@ export async function generateMonthlyPulse(
     prisma.positioningClaim.findMany(),
   ]);
 
+  const rubric = loadRubric();
   const prompt = buildMonthlyPulsePrompt({
     claims,
     items,
     monthStart: monthStart.toISOString().split("T")[0] ?? "",
     monthEnd: now.toISOString().split("T")[0] ?? "",
+    rubricText: rubric.text,
   });
 
   let content: MonthlyPulseContent | null = null;
@@ -86,6 +89,7 @@ export async function generateMonthlyPulse(
       content: JSON.parse(contentJson),
       wordCount,
       validationStatus,
+      rubricVersion: rubric.version,
       generationMetadata: { attempts, generatedAt: now.toISOString() },
       intelligenceItems: {
         connect: items.map((item) => ({ id: item.id })),

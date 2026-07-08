@@ -7,6 +7,8 @@ interface WeeklyPulsePromptContext {
   items: (IntelligenceItem & { competitor: Competitor })[];
   weekStart: string;
   weekEnd: string;
+  /** Owner-editable strategy/rubric text (U8), injected as the quality bar. */
+  rubricText?: string;
 }
 
 export function buildWeeklyPulsePrompt(ctx: WeeklyPulsePromptContext): string {
@@ -22,9 +24,14 @@ export function buildWeeklyPulsePrompt(ctx: WeeklyPulsePromptContext): string {
         )
         .join("\n");
 
+  const rubricBlock = ctx.rubricText
+    ? `\nGTM ANALYSIS STANDARDS (the quality bar — apply Part A to this pulse):\n${ctx.rubricText}\n`
+    : "";
+
   return `You are ${COMPANY_NAME}'s competitive intelligence analyst, writing the CMO's Monday morning briefing.
 
 ${COMPANY_STRATEGIC_CONTEXT}
+${rubricBlock}
 
 ${SYNTHESIS_RUBRIC}
 
