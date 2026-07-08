@@ -387,7 +387,9 @@ export class IngestionRunner {
           claims,
           existingEventKeys: existingEventKeys.get(competitorId),
         });
-        batchResult = await this.llm.classifyStructured<BatchClassificationResult>(prompt);
+        // Classify uses the stronger model (U11) — protect the unvalidated
+        // "is this noteworthy?" decision from cheap-model SKIP errors.
+        batchResult = await this.llm.classifyStructured<BatchClassificationResult>(prompt, { step: "classify" });
         stats.llmCallsMade++;
         stats.estimatedCostUsd += LLM_COST_PER_CALL;
       } catch {
@@ -628,7 +630,7 @@ export class IngestionRunner {
           existingEventKeys: stateExistingKeys.get(source.competitorId),
         });
         classification =
-          await this.llm.classifyStructured<ClassificationResult>(prompt);
+          await this.llm.classifyStructured<ClassificationResult>(prompt, { step: "classify" });
         stats.llmCallsMade++;
         stats.estimatedCostUsd += LLM_COST_PER_CALL;
       } catch {

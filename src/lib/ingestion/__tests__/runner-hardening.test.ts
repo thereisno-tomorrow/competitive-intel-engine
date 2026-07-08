@@ -158,6 +158,37 @@ describe("surfaced per-source errors (R13)", () => {
   });
 });
 
+describe("classification guard routes to the classify step (U11)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("calls classifyStructured with step 'classify'", async () => {
+    vi.mocked(prisma.dataSource.findMany).mockResolvedValue([rssSource("src-a")] as never);
+    const classify = vi.fn().mockResolvedValue({
+      events: [
+        {
+          articleIndices: [0],
+          eventKey: "k",
+          type: "PRODUCT_CHANGE",
+          summary: "TestCompetitor did a thing",
+          companyImplication: "i",
+          evidenceTier: "INFERRED",
+          affectedClaimIds: [],
+          sourceUrl: "https://publisher.com/a",
+          publishedAt: "",
+        },
+      ],
+    });
+    const llm = { classifyStructured: classify, generateStructured: vi.fn() };
+
+    await new IngestionRunner(
+      new Map([[SourceType.PRESS_RSS, newItemAdapter()]]),
+      llm,
+    ).run();
+
+    expect(classify).toHaveBeenCalledWith(expect.any(String), { step: "classify" });
+  });
+});
+
 describe("stateless RSS adapter (concurrency-safe)", () => {
   it("detectChanges reads from the RawContent payload, not instance state", async () => {
     const adapter = new RssAdapter();
