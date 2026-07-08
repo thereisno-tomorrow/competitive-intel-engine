@@ -1,5 +1,6 @@
 import { runGeneratePipeline } from "@/lib/generators/generate-pipeline";
 import { createLLMProvider } from "@/lib/llm/factory";
+import { pingHealthcheck } from "@/lib/health/heartbeat";
 import { InfraFault } from "../errors";
 import type { JobRunner } from "../queue";
 import type { GenerateJobData } from "./types";
@@ -18,6 +19,7 @@ export const generateJob: JobRunner<GenerateJobData> = async (data) => {
       pulseOnly: data.pulseOnly,
     });
     console.log("[job:generate] complete:", JSON.stringify(result));
+    await pingHealthcheck();
   } catch (err) {
     throw new InfraFault(
       `generate pipeline failed: ${err instanceof Error ? err.message : String(err)}`,

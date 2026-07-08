@@ -297,6 +297,19 @@ model SeenArticle {
   @@map("seen_articles")
 }
 
+/// Worker liveness heartbeat (U6). The worker appends a row on an interval; the
+/// dashboard classifies the latest row's age into LIVE/STALE/DEAD so a dead
+/// worker looks different from a quiet news week.
+model WorkerHeartbeat {
+  id        String   @id @default(cuid())
+  beatAt    DateTime @default(now()) @map("beat_at")
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([beatAt])
+  @@map("worker_heartbeats")
+}
+
 /// Crash-safe attempt tracking for worker jobs (U3). One row per durable job
 /// identity (queue + singleton key). Survives process crashes so a resumed job
 /// continues at attempt N+1 rather than restarting at 1.

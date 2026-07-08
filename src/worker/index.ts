@@ -8,6 +8,8 @@ import { createBoss, registerWorkers } from "./queue";
 import { buildScheduleHandlers } from "./index-handlers";
 import { ingestJob } from "./jobs/ingest";
 import { generateJob } from "./jobs/generate";
+import { writeHeartbeat } from "@/lib/health/heartbeat";
+import { HEARTBEAT } from "@/lib/config/thresholds";
 import type { GenerateCardJobData } from "./jobs/types";
 import type { JobRunner } from "./queue";
 import type { PgBoss } from "pg-boss";
@@ -23,9 +25,10 @@ const generateCardPlaceholder: JobRunner<GenerateCardJobData> = async (data) => 
 export interface WorkerRuntime {
   boss: PgBoss;
   schedule: RunningSchedule;
+  heartbeat: NodeJS.Timeout;
 }
 
-/** Boot the worker: start pg-boss, bind workers, start the cron clock. */
+/** Boot the worker: start pg-boss, bind workers, start the cron clock + heartbeat. */
 export async function startWorker(): Promise<WorkerRuntime> {
   console.log("[worker] booting…");
   const boss = createBoss();
@@ -39,13 +42,26 @@ export async function startWorker(): Promise<WorkerRuntime> {
   });
 
   const schedule = startSchedule(buildScheduleHandlers(boss));
-  console.log("[worker] clock started (ingest + generate)");
-  return { boss, schedule };
+
+  // Liveness heartbeat: write immediately, then on an interval (U6).
+  await writeHeartbeat("boot").catch((err) =>
+    console.error("[worker] heartbeat write failed:", err),
+  );
+  const heartbeat = setInterval(() => {
+    writeHeartbeat().catch((err) =>
+      console.error("[worker] heartbeat write failed:", err),
+    );
+  }, HEARTBEAT.INTERVAL_MS);
+  heartbeat.unref?.();
+
+  console.log("[worker] clock + heartbeat started (ingest + generate)");
+  return { boss, schedule, heartbeat };
 }
 
 /** Stop the clock, drain pg-boss, release DB connections. Safe on SIGTERM. */
 export async function shutdownWorker(runtime: WorkerRuntime): Promise<void> {
   console.log("[worker] shutting down…");
+  clearInterval(runtime.heartbeat);
   await runtime.schedule.stop();
   await runtime.boss.stop({ graceful: true });
   await prisma.$disconnect();

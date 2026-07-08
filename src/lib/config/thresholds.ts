@@ -144,6 +144,19 @@ export const OUTPUT_LIMITS = {
   MAX_ALERTS_PER_WEEK: 3,
 } as const;
 
+// ---------------------------------------------------------------------------
+// Worker heartbeat / liveness (U6)
+// ---------------------------------------------------------------------------
+
+export const HEARTBEAT = {
+  /** Worker writes a heartbeat row this often. */
+  INTERVAL_MS: 5 * 60_000,
+  /** Age > 1× interval → STALE. */
+  STALE_MULTIPLIER: 1,
+  /** Age > 3× interval → DEAD. */
+  DEAD_MULTIPLIER: 3,
+} as const;
+
 export const SCHEDULE = {
   /** SGT timezone offset from UTC */
   SGT_OFFSET_HOURS: 8,

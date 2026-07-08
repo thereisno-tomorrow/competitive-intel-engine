@@ -1,5 +1,6 @@
 import { runIngestionPipeline } from "@/lib/ingestion/pipeline";
 import { createLLMProvider } from "@/lib/llm/factory";
+import { pingHealthcheck } from "@/lib/health/heartbeat";
 import { InfraFault } from "../errors";
 import type { JobRunner } from "../queue";
 import type { IngestJobData } from "./types";
@@ -14,6 +15,7 @@ export const ingestJob: JobRunner<IngestJobData> = async () => {
   try {
     const result = await runIngestionPipeline(llm);
     console.log("[job:ingest] complete:", JSON.stringify(result));
+    await pingHealthcheck();
   } catch (err) {
     throw new InfraFault(
       `ingestion pipeline failed: ${err instanceof Error ? err.message : String(err)}`,

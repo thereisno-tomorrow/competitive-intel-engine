@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { WorkerStatus } from "./worker-status";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -41,7 +42,9 @@ export function Nav() {
         </Link>
 
         {/* Desktop nav links */}
-        <div className="hidden md:flex items-center gap-0.5">
+        <div className="hidden md:flex items-center gap-2">
+          <WorkerStatus />
+          <div className="flex items-center gap-0.5">
           {navLinks.map((link) => {
             const isActive =
               link.href === "/"
@@ -66,6 +69,7 @@ export function Nav() {
               </Link>
             );
           })}
+          </div>
         </div>
 
         {/* Mobile hamburger button */}
