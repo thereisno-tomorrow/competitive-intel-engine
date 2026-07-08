@@ -3,6 +3,7 @@ import type { LLMProvider } from "@/lib/llm/provider";
 import { buildWeeklyPulsePrompt } from "@/lib/llm/prompts/weekly-pulse";
 import { loadRubric } from "@/lib/llm/rubric";
 import { validateWeeklyPulse } from "@/lib/synthesis/validators";
+import { runTrustPipeline } from "@/lib/synthesis/trust-pipeline";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { WeeklyPulseContent } from "@/types";
 
@@ -37,38 +38,31 @@ export async function generateWeeklyPulse(
   const weekStartStr = weekStart.toISOString().split("T")[0] ?? "";
   const weekEndStr = now.toISOString().split("T")[0] ?? "";
 
-  let content: WeeklyPulseContent | null = null;
-  let validationStatus: GenerationResult["validationStatus"] = "REJECTED";
-  let attempts = 0;
-  let lastErrors: string[] = [];
+  // Two-gate trust pipeline: validators → adversarial judge → publish/retry (U9/U10).
+  const trust = await runTrustPipeline<WeeklyPulseContent>({
+    llm,
+    maxAttempts: OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS,
+    outputType: "Weekly Pulse",
+    rubricText: rubric.text,
+    buildPrompt: (previousErrors) =>
+      buildWeeklyPulsePrompt({
+        claims,
+        items,
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        rubricText: rubric.text,
+        previousErrors,
+      }),
+    generate: (prompt) => llm.generateStructured<WeeklyPulseContent>(prompt, {}),
+    validate: (c) => validateWeeklyPulse(c, OUTPUT_LIMITS.WEEKLY_PULSE_MAX_WORDS),
+  });
 
-  while (attempts < OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS) {
-    attempts++;
-    // Rebuild the prompt each attempt so a retry carries the SPECIFIC failure
-    // reasons from the previous attempt (U9) — never re-send the identical prompt.
-    const prompt = buildWeeklyPulsePrompt({
-      claims,
-      items,
-      weekStart: weekStartStr,
-      weekEnd: weekEndStr,
-      rubricText: rubric.text,
-      previousErrors: attempts > 1 ? lastErrors : undefined,
-    });
-    content = await llm.generateStructured<WeeklyPulseContent>(prompt, {});
-
-    const validation = validateWeeklyPulse(
-      content,
-      OUTPUT_LIMITS.WEEKLY_PULSE_MAX_WORDS,
-    );
-    if (validation.valid) {
-      validationStatus = attempts > 1 ? "REGENERATED" : "PASSED";
-      break;
-    }
-    lastErrors = validation.errors;
-  }
+  const content = trust.content;
+  const validationStatus = trust.status;
+  const attempts = trust.attempts;
 
   if (validationStatus === "REJECTED") {
-    console.error(`Weekly pulse rejected after ${attempts} attempts:`, lastErrors);
+    console.error(`Weekly pulse rejected after ${attempts} attempts:`, trust.errors);
   }
 
   if (!content) throw new Error("Failed to generate weekly pulse content");
@@ -90,6 +84,7 @@ export async function generateWeeklyPulse(
       wordCount,
       validationStatus,
       rubricVersion: rubric.version,
+      judgeVerdict: trust.judgeVerdict ? JSON.parse(JSON.stringify(trust.judgeVerdict)) : undefined,
       generationMetadata: { attempts, generatedAt: now.toISOString() },
       intelligenceItems: {
         connect: items.map((item) => ({ id: item.id })),

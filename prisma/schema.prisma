@@ -252,6 +252,7 @@ model GeneratedOutput {
   validationStatus      ValidationStatus @default(PASSED) @map("validation_status")
   generationMetadata    Json?            @map("generation_metadata")
   rubricVersion         String?          @map("rubric_version")
+  judgeVerdict          Json?            @map("judge_verdict")
   createdAt             DateTime         @default(now()) @map("created_at")
 
   intelligenceItems     IntelligenceItem[] @relation("OutputIntelligence")

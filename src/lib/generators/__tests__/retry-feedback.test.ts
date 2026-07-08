@@ -63,7 +63,7 @@ describe("generateWeeklyPulse retry-with-feedback", () => {
   it("feeds the first attempt's failure reason into the retry prompt and records REGENERATED", async () => {
     const prompts: string[] = [];
     const llm = {
-      classifyStructured: vi.fn(),
+      classifyStructured: vi.fn().mockResolvedValue({ violations: [] }),
       generateStructured: vi.fn(async (prompt: string) => {
         prompts.push(prompt);
         return prompts.length === 1 ? invalidContent : validContent;
@@ -82,7 +82,7 @@ describe("generateWeeklyPulse retry-with-feedback", () => {
 
   it("records REJECTED when all attempts fail", async () => {
     const llm = {
-      classifyStructured: vi.fn(),
+      classifyStructured: vi.fn().mockResolvedValue({ violations: [] }),
       generateStructured: vi.fn(async () => invalidContent),
     };
 
