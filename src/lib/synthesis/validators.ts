@@ -80,6 +80,57 @@ export function validateSignalAlert(content: SignalAlertContent, wordLimit: numb
   return { valid: errors.length === 0, errors };
 }
 
+// ---------------------------------------------------------------------------
+// Tier monotonicity (U12, R6): an output can never claim a higher evidence tier
+// than the best source it cites. Downgrade-only.
+// ---------------------------------------------------------------------------
+
+const TIER_RANK: Record<string, number> = {
+  CONFIRMED: 3,
+  INFERRED: 2,
+  UNKNOWN: 1,
+};
+
+function rankToTier(rank: number): string {
+  return (
+    Object.entries(TIER_RANK).find(([, r]) => r === rank)?.[0] ?? "UNKNOWN"
+  );
+}
+
+/**
+ * An asserted tier may never exceed the strongest tier among the cited sources.
+ * When there are no tiered sources at all, monotonicity is N/A here (the existing
+ * source-verification rule handles "no citations") — so this returns valid and
+ * does not double-fail. A violation is a plain validation failure that feeds the
+ * U9 retry-with-feedback loop.
+ */
+export function validateTierMonotonicity(
+  assertedTiers: Array<string | undefined | null>,
+  sourceTiers: Array<string | undefined | null>,
+): ValidationResult {
+  const errors: string[] = [];
+  const sourceRanks = sourceTiers
+    .map((t) => (t ? TIER_RANK[t] : undefined))
+    .filter((r): r is number => typeof r === "number");
+
+  if (sourceRanks.length === 0) {
+    return { valid: true, errors: [] };
+  }
+
+  const maxSourceRank = Math.max(...sourceRanks);
+  for (const t of assertedTiers) {
+    const rank = t ? TIER_RANK[t] : undefined;
+    if (typeof rank !== "number") continue;
+    if (rank > maxSourceRank) {
+      errors.push(
+        `Tier monotonicity: output claims ${t} but the best cited source is only ${rankToTier(maxSourceRank)}`,
+      );
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
 export function validateBattlecardReframe(evidenceTier: EvidenceTier): ValidationResult {
   if (evidenceTier !== "CONFIRMED") {
     return {

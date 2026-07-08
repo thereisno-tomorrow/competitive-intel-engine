@@ -4,6 +4,7 @@ import {
   validateMonthlyPulse,
   validateSignalAlert,
   validateBattlecardReframe,
+  validateTierMonotonicity,
   countWords,
 } from "../validators";
 import type { WeeklyPulseContent, MonthlyPulseContent, SignalAlertContent } from "@/types";
@@ -158,6 +159,37 @@ describe("validators", () => {
     it("rejects Unknown tier reframe", () => {
       const result = validateBattlecardReframe("UNKNOWN");
       expect(result.valid).toBe(false);
+    });
+  });
+
+  describe("validateTierMonotonicity", () => {
+    it("fails when output claims CONFIRMED but best cited source is only INFERRED", () => {
+      const result = validateTierMonotonicity(["CONFIRMED"], ["INFERRED", "UNKNOWN"]);
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toMatch(/CONFIRMED.*INFERRED/);
+    });
+
+    it("passes when output tier equals the best cited tier", () => {
+      expect(validateTierMonotonicity(["INFERRED"], ["INFERRED"]).valid).toBe(true);
+      expect(validateTierMonotonicity(["CONFIRMED"], ["CONFIRMED", "INFERRED"]).valid).toBe(true);
+    });
+
+    it("passes when output tier is below the best cited tier (downgrade allowed)", () => {
+      expect(validateTierMonotonicity(["UNKNOWN"], ["CONFIRMED"]).valid).toBe(true);
+    });
+
+    it("is N/A (valid) when there are no tiered sources — source-verification handles that", () => {
+      expect(validateTierMonotonicity(["CONFIRMED"], []).valid).toBe(true);
+      expect(validateTierMonotonicity(["CONFIRMED"], [null, undefined]).valid).toBe(true);
+    });
+
+    it("flags each over-claiming signal in a multi-signal output", () => {
+      const result = validateTierMonotonicity(
+        ["CONFIRMED", "UNKNOWN", "CONFIRMED"],
+        ["INFERRED"],
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(2);
     });
   });
 });

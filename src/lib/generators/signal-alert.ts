@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildSignalAlertPrompt } from "@/lib/llm/prompts/signal-alert";
 import { loadRubric } from "@/lib/llm/rubric";
-import { validateSignalAlert } from "@/lib/synthesis/validators";
+import { validateSignalAlert, validateTierMonotonicity } from "@/lib/synthesis/validators";
 import { runTrustPipeline } from "@/lib/synthesis/trust-pipeline";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { SignalAlertContent } from "@/types";
@@ -72,7 +72,18 @@ export async function generateSignalAlert(
         previousErrors,
       }),
     generate: (prompt) => llm.generateStructured<SignalAlertContent>(prompt, {}),
-    validate: (c) => validateSignalAlert(c, OUTPUT_LIMITS.SIGNAL_ALERT_MAX_WORDS),
+    validate: (c) => {
+      const base = validateSignalAlert(c, OUTPUT_LIMITS.SIGNAL_ALERT_MAX_WORDS);
+      // Tier monotonicity (U12): the alert can't out-claim the item it cites.
+      const mono = validateTierMonotonicity(
+        [c.sections?.evidenceTier],
+        [item.evidenceTier],
+      );
+      return {
+        valid: base.valid && mono.valid,
+        errors: [...base.errors, ...mono.errors],
+      };
+    },
   });
 
   const content = trust.content;

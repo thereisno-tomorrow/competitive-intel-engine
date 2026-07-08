@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { buildWeeklyPulsePrompt } from "@/lib/llm/prompts/weekly-pulse";
 import { loadRubric } from "@/lib/llm/rubric";
-import { validateWeeklyPulse } from "@/lib/synthesis/validators";
+import { validateWeeklyPulse, validateTierMonotonicity } from "@/lib/synthesis/validators";
 import { runTrustPipeline } from "@/lib/synthesis/trust-pipeline";
 import { OUTPUT_LIMITS } from "@/lib/config/thresholds";
 import type { WeeklyPulseContent } from "@/types";
@@ -54,7 +54,19 @@ export async function generateWeeklyPulse(
         previousErrors,
       }),
     generate: (prompt) => llm.generateStructured<WeeklyPulseContent>(prompt, {}),
-    validate: (c) => validateWeeklyPulse(c, OUTPUT_LIMITS.WEEKLY_PULSE_MAX_WORDS),
+    validate: (c) => {
+      const base = validateWeeklyPulse(c, OUTPUT_LIMITS.WEEKLY_PULSE_MAX_WORDS);
+      // Tier monotonicity (U12): no signal may out-claim its cited sources.
+      const asserted = (c.sections?.topSignals ?? []).map((s) => s.evidenceTier);
+      const mono = validateTierMonotonicity(
+        asserted,
+        items.map((i) => i.evidenceTier),
+      );
+      return {
+        valid: base.valid && mono.valid,
+        errors: [...base.errors, ...mono.errors],
+      };
+    },
   });
 
   const content = trust.content;
