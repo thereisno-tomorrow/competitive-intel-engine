@@ -2,6 +2,7 @@ import type { ConnectorRegistry } from "../connector";
 import { createRegulatoryConnector } from "./regulatory";
 import { createJobsConnector } from "./jobs";
 import { createSeoConnector } from "./seo";
+import { createLinkedInConnector } from "./linkedin";
 
 /**
  * The default connector registry (plain Record — KTD7). New source connectors
@@ -9,10 +10,14 @@ import { createSeoConnector } from "./seo";
  * type with no connector is skipped loudly by the fan-out, never fatal.
  */
 export function createDefaultConnectors(): ConnectorRegistry {
-  return {
+  const registry: ConnectorRegistry = {
     REGULATORY: createRegulatoryConnector(),
     JOB_POSTING: createJobsConnector(),
     SEO: createSeoConnector(),
-    // LINKEDIN (U23) uses the existing PhantomBuster adapter path (see runner).
   };
+  // LinkedIn (U23) is env-gated: only register when a PhantomBuster key is present.
+  if (process.env.PHANTOMBUSTER_API_KEY) {
+    registry.LINKEDIN = createLinkedInConnector();
+  }
+  return registry;
 }

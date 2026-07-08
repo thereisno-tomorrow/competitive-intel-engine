@@ -8,25 +8,20 @@ import {
   StatusPageAdapter,
 } from "./adapters/html-page";
 import { RssAdapter } from "./adapters/rss";
-import { LinkedInAdapter } from "./adapters/linkedin";
 import { createDefaultConnectors } from "./connectors";
 
 /**
- * Build the default adapter set. LinkedIn is included only when a PhantomBuster
- * key is configured (loud no-op otherwise). Shared by the cron route, the worker
- * job, and the manual script so the pipeline is identical everywhere.
+ * Build the default adapter set (EVENT/STATE sources). LinkedIn now flows through
+ * the connector registry (U23), not an adapter — kept out here to avoid
+ * double-ingestion. Shared by the cron route, worker job, and manual script.
  */
 export function createDefaultAdapters(): Map<SourceType, IngestionAdapter> {
-  const adapters = new Map<SourceType, IngestionAdapter>([
+  return new Map<SourceType, IngestionAdapter>([
     ["WEBSITE", new WebsiteAdapter()],
     ["CHANGELOG", new ChangelogAdapter()],
     ["PRESS_RSS", new RssAdapter()],
     ["STATUS_PAGE", new StatusPageAdapter()],
   ]);
-  if (process.env.PHANTOMBUSTER_API_KEY) {
-    adapters.set("LINKEDIN", new LinkedInAdapter());
-  }
-  return adapters;
 }
 
 /** Run the full ingestion pipeline with the default adapters + connectors. */
