@@ -4,42 +4,58 @@ import "./boot-env";
 
 import { prisma } from "@/lib/db";
 import { startSchedule, type RunningSchedule } from "./schedule";
+import { createBoss, registerWorkers } from "./queue";
+import { buildScheduleHandlers } from "./index-handlers";
+import { ingestJob } from "./jobs/ingest";
+import { generateJob } from "./jobs/generate";
+import type { GenerateCardJobData } from "./jobs/types";
+import type { JobRunner } from "./queue";
+import type { PgBoss } from "pg-boss";
 
 /**
- * Boot the worker: start the cron clock and register graceful shutdown.
- *
- * The tick handlers here are placeholders that will be wired to pg-boss job
- * enqueues in U4. Keeping them as thin logging stubs lets U2 land and smoke-test
- * the process lifecycle independently.
+ * Placeholder card-regen handler. Replaced by the real generator in U16; the
+ * generate-card queue isn't enqueued until U17, so a no-op is safe for Phase 1.
  */
-export function startWorker(): RunningSchedule {
-  console.log("[worker] booting…");
+const generateCardPlaceholder: JobRunner<GenerateCardJobData> = async (data) => {
+  console.log("[job:generate-card] placeholder (U16 wires the generator):", data.competitorId);
+};
 
-  const schedule = startSchedule({
-    onIngestTick: () => {
-      console.log("[worker] ingest tick (no-op until U4 wires the job)");
-    },
-    onGenerateTick: () => {
-      console.log("[worker] generate tick (no-op until U4 wires the job)");
-    },
-  });
-
-  console.log("[worker] clock started (ingest + generate)");
-  return schedule;
+export interface WorkerRuntime {
+  boss: PgBoss;
+  schedule: RunningSchedule;
 }
 
-/** Stop the clock and release DB connections. Idempotent-ish; safe on SIGTERM. */
-export async function shutdownWorker(schedule: RunningSchedule): Promise<void> {
+/** Boot the worker: start pg-boss, bind workers, start the cron clock. */
+export async function startWorker(): Promise<WorkerRuntime> {
+  console.log("[worker] booting…");
+  const boss = createBoss();
+  boss.on("error", (err) => console.error("[worker] pg-boss error:", err));
+  await boss.start();
+
+  await registerWorkers(boss, {
+    ingest: ingestJob,
+    generate: generateJob,
+    generateCard: generateCardPlaceholder,
+  });
+
+  const schedule = startSchedule(buildScheduleHandlers(boss));
+  console.log("[worker] clock started (ingest + generate)");
+  return { boss, schedule };
+}
+
+/** Stop the clock, drain pg-boss, release DB connections. Safe on SIGTERM. */
+export async function shutdownWorker(runtime: WorkerRuntime): Promise<void> {
   console.log("[worker] shutting down…");
-  await schedule.stop();
+  await runtime.schedule.stop();
+  await runtime.boss.stop({ graceful: true });
   await prisma.$disconnect();
   console.log("[worker] shutdown complete");
 }
 
-function registerSignals(schedule: RunningSchedule): void {
+function registerSignals(runtime: WorkerRuntime): void {
   const handle = (signal: string) => {
     console.log(`[worker] received ${signal}`);
-    shutdownWorker(schedule)
+    shutdownWorker(runtime)
       .then(() => process.exit(0))
       .catch((err) => {
         console.error("[worker] shutdown error:", err);
@@ -52,6 +68,10 @@ function registerSignals(schedule: RunningSchedule): void {
 
 // Auto-start when run as the process entry (not when imported by a test).
 if (process.env.WORKER_AUTOSTART !== "false") {
-  const schedule = startWorker();
-  registerSignals(schedule);
+  startWorker()
+    .then((runtime) => registerSignals(runtime))
+    .catch((err) => {
+      console.error("[worker] failed to start:", err);
+      process.exit(1);
+    });
 }
