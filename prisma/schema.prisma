@@ -165,7 +165,7 @@ model IntelligenceItem {
   type             IntelType
   rawContent       String       @map("raw_content")
   summary          String
-  companyImplication String     @map("finmo_implication")
+  companyImplication String     @map("company_implication")
   evidenceTier     EvidenceTier @map("evidence_tier")
   sourceUrl        String       @map("source_url")
   alertTriggered   Boolean      @default(false) @map("alert_triggered")
