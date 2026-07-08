@@ -1,4 +1,5 @@
 import type { ConnectorRegistry } from "../connector";
+import { createRegulatoryConnector } from "./regulatory";
 
 /**
  * The default connector registry (plain Record — KTD7). New source connectors
@@ -7,6 +8,7 @@ import type { ConnectorRegistry } from "../connector";
  */
 export function createDefaultConnectors(): ConnectorRegistry {
   return {
-    // Populated by U20–U23.
+    REGULATORY: createRegulatoryConnector(),
+    // JOB_POSTING (U21), SEO (U22), LINKEDIN (U23) added below.
   };
 }

@@ -140,6 +140,18 @@ async function main() {
     // { competitorId: competitor1.id, type: SourceType.WEBSITE, url: "https://competitor1.com/pricing", cadence: SourceCadence.DAILY },
     // { competitorId: competitor2.id, type: SourceType.STATUS_PAGE, url: "https://status.competitor2.com/", cadence: SourceCadence.DAILY },
 
+    // --- New-source connectors (U20–U22), free + keyless ---
+    // REGULATORY (U20): host-routed SEC EDGAR JSON or MAS FI directory. Curated
+    // direct-pin URLs (CIK submissions endpoint / MAS entity page). Confirmed anchor.
+    // { competitorId: competitor1.id, type: SourceType.REGULATORY, url: "https://data.sec.gov/submissions/CIK0000000000.json", cadence: SourceCadence.WEEKLY },
+    // { competitorId: competitor2.id, type: SourceType.REGULATORY, url: "https://eservices.mas.gov.sg/fid/institution/detail/XXXXX", cadence: SourceCadence.WEEKLY },
+    //
+    // JOB_POSTING (U21): a competitor careers page (hiring-intent signal, Inferred tier).
+    // { competitorId: competitor1.id, type: SourceType.JOB_POSTING, url: "https://competitor1.com/careers", cadence: SourceCadence.WEEKLY },
+    //
+    // SEO (U22): a competitor content/search surface (lower-signal, cheap).
+    // { competitorId: competitor1.id, type: SourceType.SEO, url: "https://competitor1.com/blog", cadence: SourceCadence.WEEKLY },
+
     // --- LinkedIn phantoms (PhantomBuster) ---
     // Placeholder agent IDs — replace with real PB phantom IDs after setup.
     // Format: pb://{phantomAgentId}/posts|jobs|company
