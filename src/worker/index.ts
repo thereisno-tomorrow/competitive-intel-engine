@@ -5,6 +5,7 @@ import "./boot-env";
 import { prisma } from "@/lib/db";
 import { startSchedule, type RunningSchedule } from "./schedule";
 import { createBoss, registerWorkers } from "./queue";
+import { setActiveBoss } from "./boss-registry";
 import { buildScheduleHandlers } from "./index-handlers";
 import { ingestJob } from "./jobs/ingest";
 import { generateJob } from "./jobs/generate";
@@ -25,6 +26,7 @@ export async function startWorker(): Promise<WorkerRuntime> {
   const boss = createBoss();
   boss.on("error", (err) => console.error("[worker] pg-boss error:", err));
   await boss.start();
+  setActiveBoss(boss); // so the ingest job can enqueue card-regen retargets (U17)
 
   await registerWorkers(boss, {
     ingest: ingestJob,
