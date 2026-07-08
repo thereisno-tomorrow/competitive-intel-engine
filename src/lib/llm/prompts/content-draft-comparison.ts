@@ -54,7 +54,7 @@ BATTLECARD DATA:
     .slice(0, 10)
     .map(
       (item) =>
-        `- ${item.type}: ${item.summary} (${item.evidenceTier}) | ${(item as any).companyImplication}`
+        `- ${item.type}: ${item.summary} (${item.evidenceTier}) | ${item.companyImplication}`
     )
     .join("\n");
 

@@ -1,6 +1,7 @@
 import type { IntelligenceItem, PositioningClaim, Competitor } from "@/generated/prisma/client";
 import { COMPANY_STRATEGIC_CONTEXT, COMPANY_EXTENDED_CONTEXT, getAllCompetitorProfiles, SYNTHESIS_RUBRIC, INTELLIGENCE_LAYER_RUBRIC } from "@/lib/llm/context";
 import { COMPANY_NAME } from "@/lib/config/company";
+import { buildRetryFeedbackBlock } from "./weekly-pulse";
 
 interface MonthlyPulsePromptContext {
   claims: PositioningClaim[];
@@ -9,6 +10,8 @@ interface MonthlyPulsePromptContext {
   monthEnd: string;
   /** Owner-editable strategy/rubric text (U8), injected as the quality bar. */
   rubricText?: string;
+  /** Specific validator failure reasons from the previous attempt (U9). */
+  previousErrors?: string[];
 }
 
 export function buildMonthlyPulsePrompt(ctx: MonthlyPulsePromptContext): string {
@@ -33,9 +36,10 @@ export function buildMonthlyPulsePrompt(ctx: MonthlyPulsePromptContext): string 
   const rubricBlock = ctx.rubricText
     ? `\nGTM ANALYSIS STANDARDS (the quality bar — apply Part A to this briefing):\n${ctx.rubricText}\n`
     : "";
+  const feedbackBlock = buildRetryFeedbackBlock(ctx.previousErrors);
 
   return `You are ${COMPANY_NAME}'s competitive intelligence analyst, writing the CMO's monthly strategic briefing. This is the most important CI output — it shapes positioning decisions, content strategy, and board-level narratives.
-
+${feedbackBlock}
 ${COMPANY_STRATEGIC_CONTEXT}
 ${rubricBlock}
 

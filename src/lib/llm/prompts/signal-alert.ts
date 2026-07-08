@@ -1,6 +1,7 @@
 import type { IntelligenceItem, PositioningClaim, Competitor } from "@/generated/prisma/client";
 import { COMPANY_STRATEGIC_CONTEXT, COMPANY_EXTENDED_CONTEXT, getCompetitorProfile, SYNTHESIS_RUBRIC, INTELLIGENCE_LAYER_RUBRIC } from "@/lib/llm/context";
 import { COMPANY_NAME } from "@/lib/config/company";
+import { buildRetryFeedbackBlock } from "./weekly-pulse";
 
 interface SignalAlertPromptContext {
   item: IntelligenceItem & { competitor: Competitor };
@@ -8,6 +9,8 @@ interface SignalAlertPromptContext {
   alertReasons: string[];
   /** Owner-editable strategy/rubric text (U8), injected as the quality bar. */
   rubricText?: string;
+  /** Specific validator failure reasons from the previous attempt (U9). */
+  previousErrors?: string[];
 }
 
 export function buildSignalAlertPrompt(ctx: SignalAlertPromptContext): string {
@@ -15,6 +18,7 @@ export function buildSignalAlertPrompt(ctx: SignalAlertPromptContext): string {
   const rubricBlock = ctx.rubricText
     ? `\nGTM ANALYSIS STANDARDS (the quality bar — apply Part A to this alert):\n${ctx.rubricText}\n`
     : "";
+  const feedbackBlock = buildRetryFeedbackBlock(ctx.previousErrors);
 
   const claimsList = ctx.claims
     .map((c, i) => `${i + 1}. [${c.id}] "${c.claimText}" — Current status: ${c.currentStatus}`)
@@ -27,7 +31,7 @@ export function buildSignalAlertPrompt(ctx: SignalAlertPromptContext): string {
   const competitorProfile = getCompetitorProfile(item.competitor.name);
 
   return `You are ${COMPANY_NAME}'s competitive intelligence analyst, briefing the CMO on a significant competitive event.
-
+${feedbackBlock}
 ${COMPANY_STRATEGIC_CONTEXT}
 ${rubricBlock}
 COMPETITOR CONTEXT:

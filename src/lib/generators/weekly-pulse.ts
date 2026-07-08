@@ -34,13 +34,8 @@ export async function generateWeeklyPulse(
   ]);
 
   const rubric = loadRubric();
-  const prompt = buildWeeklyPulsePrompt({
-    claims,
-    items,
-    weekStart: weekStart.toISOString().split("T")[0] ?? "",
-    weekEnd: now.toISOString().split("T")[0] ?? "",
-    rubricText: rubric.text,
-  });
+  const weekStartStr = weekStart.toISOString().split("T")[0] ?? "";
+  const weekEndStr = now.toISOString().split("T")[0] ?? "";
 
   let content: WeeklyPulseContent | null = null;
   let validationStatus: GenerationResult["validationStatus"] = "REJECTED";
@@ -49,6 +44,16 @@ export async function generateWeeklyPulse(
 
   while (attempts < OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS) {
     attempts++;
+    // Rebuild the prompt each attempt so a retry carries the SPECIFIC failure
+    // reasons from the previous attempt (U9) — never re-send the identical prompt.
+    const prompt = buildWeeklyPulsePrompt({
+      claims,
+      items,
+      weekStart: weekStartStr,
+      weekEnd: weekEndStr,
+      rubricText: rubric.text,
+      previousErrors: attempts > 1 ? lastErrors : undefined,
+    });
     content = await llm.generateStructured<WeeklyPulseContent>(prompt, {});
 
     const validation = validateWeeklyPulse(

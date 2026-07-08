@@ -1,4 +1,6 @@
 import "dotenv/config";
+import type { SourceType } from "@/generated/prisma/client";
+import type { IngestionAdapter } from "@/lib/ingestion/adapters/base";
 
 // This script runs ingestion locally but writes to your Vercel (production) database
 // It bypasses Vercel's 10-second timeout limitation on the free tier
@@ -29,7 +31,7 @@ async function main() {
   const { LinkedInAdapter } = await import("@/lib/ingestion/adapters/linkedin");
   const { ClaudeProvider } = await import("@/lib/llm/claude");
 
-  const adapters = new Map<string, any>([
+  const adapters = new Map<SourceType, IngestionAdapter>([
     ["WEBSITE", new WebsiteAdapter()],
     ["CHANGELOG", new ChangelogAdapter()],
     ["PRESS_RSS", new RssAdapter()],
@@ -42,7 +44,7 @@ async function main() {
   }
 
   const llm = new ClaudeProvider();
-  const runner = new IngestionRunner(adapters as any, llm);
+  const runner = new IngestionRunner(adapters, llm);
 
   try {
     const result = await runner.run();

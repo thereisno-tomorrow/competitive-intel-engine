@@ -67,7 +67,9 @@ export function startSchedule(
   return {
     tasks,
     stop: async () => {
-      await Promise.all(tasks.map((t) => t.stop()));
+      // destroy() (not just stop()) fully releases node-cron's internal timers so
+      // the process — and vitest's worker forks — can exit cleanly.
+      await Promise.all(tasks.map((t) => t.destroy()));
     },
   };
 }

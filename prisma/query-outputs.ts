@@ -39,7 +39,7 @@ async function main() {
     console.log("\n=== LATEST PULSE ===");
     console.log(`type: ${latest.type}`);
     console.log(`headline: ${latest.headline}`);
-    const content = latest.content as any;
+    const content = latest.content as Record<string, unknown> | null;
     if (content?.sections) {
       console.log("sections keys:", Object.keys(content.sections));
       for (const [key, val] of Object.entries(content.sections)) {

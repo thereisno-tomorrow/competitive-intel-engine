@@ -46,7 +46,7 @@ export async function generateBriefSuggestions(
     .slice(0, 20)
     .map(
       (item) =>
-        `- [${item.competitor.name}] ${item.type}: ${item.summary} (${item.evidenceTier}) | Implication: ${(item as any).companyImplication}`
+        `- [${item.competitor.name}] ${item.type}: ${item.summary} (${item.evidenceTier}) | Implication: ${item.companyImplication}`
     )
     .join("\n");
 

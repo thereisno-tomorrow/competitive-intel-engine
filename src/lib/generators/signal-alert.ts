@@ -56,12 +56,6 @@ export async function generateSignalAlert(
   const claims = await prisma.positioningClaim.findMany();
 
   const rubric = loadRubric();
-  const prompt = buildSignalAlertPrompt({
-    item,
-    claims,
-    alertReasons,
-    rubricText: rubric.text,
-  });
 
   let content: SignalAlertContent | null = null;
   let validationStatus: GenerationResult["validationStatus"] = "REJECTED";
@@ -70,6 +64,14 @@ export async function generateSignalAlert(
 
   while (attempts < OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS) {
     attempts++;
+    // Retry carries the previous attempt's specific failure reasons (U9).
+    const prompt = buildSignalAlertPrompt({
+      item,
+      claims,
+      alertReasons,
+      rubricText: rubric.text,
+      previousErrors: attempts > 1 ? lastErrors : undefined,
+    });
     content = await llm.generateStructured<SignalAlertContent>(prompt, {});
 
     const validation = validateSignalAlert(

@@ -34,13 +34,8 @@ export async function generateMonthlyPulse(
   ]);
 
   const rubric = loadRubric();
-  const prompt = buildMonthlyPulsePrompt({
-    claims,
-    items,
-    monthStart: monthStart.toISOString().split("T")[0] ?? "",
-    monthEnd: now.toISOString().split("T")[0] ?? "",
-    rubricText: rubric.text,
-  });
+  const monthStartStr = monthStart.toISOString().split("T")[0] ?? "";
+  const monthEndStr = now.toISOString().split("T")[0] ?? "";
 
   let content: MonthlyPulseContent | null = null;
   let validationStatus: GenerationResult["validationStatus"] = "REJECTED";
@@ -49,6 +44,15 @@ export async function generateMonthlyPulse(
 
   while (attempts < OUTPUT_LIMITS.MAX_REGENERATION_ATTEMPTS) {
     attempts++;
+    // Retry carries the previous attempt's specific failure reasons (U9).
+    const prompt = buildMonthlyPulsePrompt({
+      claims,
+      items,
+      monthStart: monthStartStr,
+      monthEnd: monthEndStr,
+      rubricText: rubric.text,
+      previousErrors: attempts > 1 ? lastErrors : undefined,
+    });
     content = await llm.generateStructured<MonthlyPulseContent>(prompt, {});
 
     const validation = validateMonthlyPulse(
