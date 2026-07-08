@@ -1,0 +1,20 @@
+# Fly.io config for the always-on worker.
+# Region "sin" (Singapore) to sit next to v1's Neon DB (ap-southeast-1).
+# NOTE: distinct app name from gtm-studio's worker.
+app = "competitive-war-room-worker"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  WORKER_AUTOSTART = "true"
+
+# No [http_service] / exposed port: this is a background worker, not a web server.
+# It boots a node-cron clock and consumes a pg-boss queue on Neon.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  # Keep it always running (autonomy). Do not auto-stop this machine.
