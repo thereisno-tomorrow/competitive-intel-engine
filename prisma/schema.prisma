@@ -100,6 +100,13 @@ enum ContentType {
   COMPARISON_PAGE
 }
 
+enum JobRunStatus {
+  PENDING
+  RUNNING
+  DONE
+  REJECTED
+}
+
 enum BuyerSegment {
   STARTUP
   MSME
@@ -288,6 +295,22 @@ model SeenArticle {
 
   @@unique([sourceId, articleUrl])
   @@map("seen_articles")
+}
+
+/// Crash-safe attempt tracking for worker jobs (U3). One row per durable job
+/// identity (queue + singleton key). Survives process crashes so a resumed job
+/// continues at attempt N+1 rather than restarting at 1.
+model JobRun {
+  id        String       @id @default(cuid())
+  jobKey    String       @unique @map("job_key")
+  queue     String
+  attempt   Int          @default(0)
+  status    JobRunStatus @default(PENDING)
+  lastError String?      @map("last_error")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@map("job_runs")
 }
 
 model ContentDraft {
